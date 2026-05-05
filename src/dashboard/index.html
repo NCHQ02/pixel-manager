@@ -27,6 +27,11 @@
         </div>
 
         <nav class="sidebar-nav">
+          <div class="search-container">
+            <input type="text" id="global-search" placeholder="Search events, IDs, URLs..." class="search-input" />
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          </div>
+
           <p class="eyebrow nav-title">Filter Stream</p>
           <button id="tab-all" class="filter-btn active">All Events</button>
           <button id="tab-meta" class="filter-btn">
@@ -47,6 +52,11 @@
             />
             TikTok Pixel
           </button>
+
+          <p class="eyebrow nav-title" style="margin-top: 24px">Focus Tab</p>
+          <select id="tab-selector" class="tab-select">
+            <option value="all">All Browser Tabs</option>
+          </select>
         </nav>
 
         <div class="sidebar-footer">
@@ -98,6 +108,19 @@
           </div>
         </section>
       </main>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay" style="display: none;">
+      <div class="modal-dialog color-block bg-cream">
+        <h3 id="modal-title" class="headline">Are you sure?</h3>
+        <p id="modal-message" class="body" style="margin: 16px 0 32px 0;">
+          This action cannot be undone. All tracked events will be permanently removed.
+        </p>
+        <div class="modal-actions">
+          <button id="modal-cancel" class="button-pill button-outline">Cancel</button>
+          <button id="modal-confirm" class="button-pill" style="background: var(--colors-ink); color: white;">Confirm</button>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="js/app.js"></script>
