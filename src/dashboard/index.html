@@ -52,6 +52,10 @@
             />
             TikTok Pixel
           </button>
+          <button id="tab-diagnostics" class="filter-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            Diagnostics
+          </button>
 
           <p class="eyebrow nav-title" style="margin-top: 24px">Focus Tab</p>
           <select id="tab-selector" class="tab-select">
@@ -60,6 +64,19 @@
         </nav>
 
         <div class="sidebar-footer">
+          <div class="footer-actions">
+            <p class="eyebrow nav-title" style="margin-bottom: 8px">Export Data</p>
+            <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+              <button id="export-json-btn" class="button-pill button-outline" style="flex: 1; padding: 10px; font-size: 13px;">JSON</button>
+              <button id="export-csv-btn" class="button-pill button-outline" style="flex: 1; padding: 10px; font-size: 13px;">CSV</button>
+            </div>
+            
+            <label class="toggle-container">
+              <input type="checkbox" id="session-view-toggle" />
+              <span class="toggle-label body-sm">Session Grouping</span>
+            </label>
+          </div>
+
           <button id="clear-all-btn" class="button-pill button-outline">
             Clear canvas
           </button>
@@ -101,9 +118,11 @@
           </div>
 
           <div id="empty-state" class="empty-state color-block bg-cream">
-            <h3 class="headline">It's quiet in here.</h3>
-            <p class="body">
-              Browse to a site with Meta or TikTok pixels to see the data flow.
+            <h3 class="headline" style="margin-bottom: 8px">Awaiting Signal</h3>
+            <p class="body-lg" style="max-width: 440px">
+              Navigate to a site with Meta or TikTok integrations to begin
+              real-time interception. Dispatched events will materialize on the
+              canvas as they occur.
             </p>
           </div>
         </section>

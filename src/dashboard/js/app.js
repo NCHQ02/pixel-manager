@@ -1,47 +1,35 @@
 import { store } from './store.js';
 import { PixelRenderer } from './renderer.js';
 import { showConfirm } from './modal.js';
+import { groupEventsBySession, eventsToCsv } from './utils.js';
 
 // --- State & DOM Elements ---
-let currentPlatform = "All";
+let currentPlatform = "All"; // 'All', 'Meta', 'TikTok', 'Diagnostics'
 let searchQuery = "";
 let selectedTabId = "all";
+let isSessionView = false;
 
 const renderer = new PixelRenderer("events-table-body", "empty-state");
 
 const searchInput = document.getElementById("global-search");
 const tabSelector = document.getElementById("tab-selector");
 const clearBtn = document.getElementById("clear-all-btn");
+const sessionToggle = document.getElementById("session-view-toggle");
+const exportJsonBtn = document.getElementById("export-json-btn");
+const exportCsvBtn = document.getElementById("export-csv-btn");
 
 const tabAll = document.getElementById("tab-all");
 const tabMeta = document.getElementById("tab-meta");
 const tabTikTok = document.getElementById("tab-tiktok");
+const tabDiagnostics = document.getElementById("tab-diagnostics");
+
+// Collection of filter buttons for easy state management
+const filterBtns = [tabAll, tabMeta, tabTikTok, tabDiagnostics];
 
 const heroSection = document.getElementById("hero-section");
 const heroEyebrow = document.getElementById("hero-eyebrow");
 const heroTitle = document.getElementById("hero-title");
 const heroSubtitle = document.getElementById("hero-subtitle");
-
-const heroContent = {
-  All: {
-    eyebrow: "The Event Canvas",
-    title: "A real-time, unstructured stream of tracking pixels.",
-    subtitle: "No secrets, no obfuscation. Watch data dispatch from your browser as it happens.",
-    bg: "bg-lilac",
-  },
-  Meta: {
-    eyebrow: "Meta Pixel",
-    title: "Facebook event interception.",
-    subtitle: "Monitoring PageViews, Lead events, and custom conversions dispatched to Meta.",
-    bg: "bg-meta",
-  },
-  TikTok: {
-    eyebrow: "TikTok Pixel",
-    title: "TikTok tracking analytics.",
-    subtitle: "Capturing auto-events, page interactions, and custom events routed to ByteDance.",
-    bg: "bg-tiktok",
-  },
-};
 
 // --- Logic ---
 
@@ -55,9 +43,15 @@ function updateUI() {
     filteredEvents.sort((a, b) => b.timestamp - a.timestamp);
   }
 
-  // Filter by Platform
-  if (currentPlatform !== "All") {
-    filteredEvents = filteredEvents.filter(e => e.platform === currentPlatform);
+  // Handle Diagnostics vs Main Flow
+  if (currentPlatform === "Diagnostics") {
+    filteredEvents = filteredEvents.filter(e => e.isDiagnostic === true);
+  } else {
+    // Normal platforms: Hide diagnostics by default
+    filteredEvents = filteredEvents.filter(e => !e.isDiagnostic);
+    if (currentPlatform !== "All") {
+      filteredEvents = filteredEvents.filter(e => e.platform === currentPlatform);
+    }
   }
 
   // Filter by Search Query
@@ -70,7 +64,42 @@ function updateUI() {
     );
   }
 
-  renderer.render(filteredEvents);
+  if (isSessionView) {
+    const sessions = groupEventsBySession(filteredEvents);
+    renderer.render(sessions, true);
+  } else {
+    renderer.render(filteredEvents, false);
+  }
+}
+
+function exportData(format) {
+  const events = store.getAllEvents();
+  if (events.length === 0) {
+    alert("No data to export!");
+    return;
+  }
+
+  let content = "";
+  let filename = `pixel-events-${new Date().toISOString().split('T')[0]}`;
+  let mimeType = "";
+
+  if (format === "json") {
+    content = JSON.stringify(events, null, 2);
+    filename += ".json";
+    mimeType = "application/json";
+  } else {
+    content = eventsToCsv(events);
+    filename += ".csv";
+    mimeType = "text/csv";
+  }
+
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function updateTabSelector(eventsMap) {
@@ -102,16 +131,44 @@ function updateTabSelector(eventsMap) {
 
 function setPlatform(platform, btn) {
   currentPlatform = platform;
-  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+  filterBtns.forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
 
-  const content = heroContent[platform];
-  if (content && heroSection) {
-    heroEyebrow.textContent = content.eyebrow;
-    heroTitle.textContent = content.title;
-    heroSubtitle.textContent = content.subtitle;
-    heroSection.classList.remove("bg-lilac", "bg-meta", "bg-tiktok");
-    heroSection.classList.add(content.bg);
+  const contentMap = {
+    "All": {
+      eyebrow: "Global Stream",
+      title: "Pixel Tracker",
+      desc: "Comprehensive view of all tracking signals intercepted from social platforms.",
+      bg: "bg-lilac"
+    },
+    "Meta": {
+      eyebrow: "Meta Pixel",
+      title: "Facebook Tracking",
+      desc: "Capturing standard events, advanced matching, and custom conversions routed to Meta.",
+      bg: "bg-meta"
+    },
+    "TikTok": {
+      eyebrow: "TikTok Pixel",
+      title: "TikTok Analytics",
+      desc: "Monitoring page interactions and custom events dispatched to the TikTok Pixel engine.",
+      bg: "bg-tiktok"
+    },
+    "Diagnostics": {
+      eyebrow: "Diagnostics",
+      title: "Internal Pings",
+      desc: "Low-level system signals, microdata pings, and automated diagnostic traces.",
+      bg: "bg-cream"
+    }
+  };
+
+  const config = contentMap[platform];
+  if (config && heroSection) {
+    heroEyebrow.textContent = config.eyebrow;
+    heroTitle.textContent = config.title;
+    heroSubtitle.textContent = config.desc;
+    
+    heroSection.classList.remove("bg-lilac", "bg-meta", "bg-tiktok", "bg-cream");
+    heroSection.classList.add(config.bg);
   }
 
   updateUI();
@@ -122,6 +179,7 @@ function setPlatform(platform, btn) {
 tabAll.addEventListener("click", () => setPlatform("All", tabAll));
 tabMeta.addEventListener("click", () => setPlatform("Meta", tabMeta));
 tabTikTok.addEventListener("click", () => setPlatform("TikTok", tabTikTok));
+tabDiagnostics.addEventListener("click", () => setPlatform("Diagnostics", tabDiagnostics));
 
 searchInput.addEventListener("input", (e) => {
   searchQuery = e.target.value;
@@ -132,6 +190,14 @@ tabSelector.addEventListener("change", (e) => {
   selectedTabId = e.target.value;
   updateUI();
 });
+
+sessionToggle.addEventListener("change", (e) => {
+  isSessionView = e.target.checked;
+  updateUI();
+});
+
+exportJsonBtn.addEventListener("click", () => exportData("json"));
+exportCsvBtn.addEventListener("click", () => exportData("csv"));
 
 clearBtn.addEventListener("click", async () => {
   const confirmed = await showConfirm(

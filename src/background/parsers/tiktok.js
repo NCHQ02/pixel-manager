@@ -45,5 +45,7 @@ export function parseTikTokRequest(url, details) {
     }
   }
 
-  return { platform: "TikTok", pixelId, eventName, eventData };
+  const isDiagnostic = eventName === "Unknown";
+
+  return { platform: "TikTok", pixelId, eventName, eventData, isDiagnostic };
 }

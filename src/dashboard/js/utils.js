@@ -105,3 +105,137 @@ export function extractRichDetails(eventData, platform) {
 
   return details;
 }
+
+/**
+ * Detects if an event contains Advanced Matching (User Data)
+ * @param {object} eventData 
+ * @param {string} platform 
+ * @returns {Array} List of found user data keys
+ */
+export function detectAdvancedMatching(eventData, platform) {
+  const amKeys = [];
+  const d = eventData;
+
+  if (platform === "Meta") {
+    if (d.fbp) amKeys.push("fbp");
+    if (d.fbc) amKeys.push("fbc");
+    if (d.ud) {
+      Object.keys(d.ud).forEach(k => {
+        if (d.ud[k]) amKeys.push(`ud:${k}`);
+      });
+    }
+  } else if (platform === "TikTok") {
+    // TikTok often sends user data in context or as top-level hashed params
+    if (d.external_id) amKeys.push("external_id");
+    if (d.em) amKeys.push("email (hashed)");
+    if (d.ph) amKeys.push("phone (hashed)");
+    if (d.context && d.context.user) {
+      if (d.context.user.external_id) amKeys.push("external_id");
+      if (d.context.user.email) amKeys.push("email");
+    }
+  }
+
+  return amKeys;
+}
+
+/**
+ * Basic Audit for Pixel events
+ * @param {object} event 
+ * @returns {Array} List of warning messages
+ */
+export function auditEvent(event) {
+  const warnings = [];
+  const { platform, eventName, eventData } = event;
+
+  if (platform === "Meta") {
+    if (eventName === "Purchase" && (!eventData.cd || !eventData.cd.value)) {
+      warnings.push("Missing 'value' parameter for Purchase event.");
+    }
+    if (eventName === "Purchase" && (!eventData.cd || !eventData.cd.currency)) {
+      warnings.push("Missing 'currency' parameter for Purchase event.");
+    }
+  } else if (platform === "TikTok") {
+    if (eventName === "CompletePayment" && (!eventData.properties || !eventData.properties.value)) {
+      warnings.push("Missing 'value' parameter for CompletePayment.");
+    }
+  }
+  
+  return warnings;
+}
+
+/**
+ * Groups events by Session (Tab ID + Inactivity window)
+ * @param {Array} events 
+ * @param {number} windowMs 
+ * @returns {Array} Array of sessions
+ */
+export function groupEventsBySession(events, windowMs = 1800000) {
+  if (!events || events.length === 0) return [];
+  
+  // 1. Group events by tabId first to ensure we don't mix tabs in a single session
+  const eventsByTab = {};
+  events.forEach(e => {
+    const tid = e.tabId || "unknown";
+    if (!eventsByTab[tid]) eventsByTab[tid] = [];
+    eventsByTab[tid].push(e);
+  });
+
+  const allSessions = [];
+
+  // 2. For each tab, group events by inactivity window (Standard 30 min)
+  Object.values(eventsByTab).forEach(tabEvents => {
+    const sorted = [...tabEvents].sort((a, b) => a.timestamp - b.timestamp);
+    
+    let currentSession = {
+      id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      url: sorted[0].url,
+      hostname: new URL(sorted[0].url).hostname,
+      startTime: sorted[0].timestamp,
+      endTime: sorted[0].timestamp,
+      events: [sorted[0]]
+    };
+
+    for (let i = 1; i < sorted.length; i++) {
+      const event = sorted[i];
+      const lastEvent = sorted[i - 1];
+      
+      // If gap is less than windowMs, it's the same session
+      if ((event.timestamp - lastEvent.timestamp) < windowMs) {
+        currentSession.events.push(event);
+        currentSession.endTime = event.timestamp;
+      } else {
+        allSessions.push(currentSession);
+        currentSession = {
+          id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          url: event.url,
+          hostname: new URL(event.url).hostname,
+          startTime: event.timestamp,
+          endTime: event.timestamp,
+          events: [event]
+        };
+      }
+    }
+    allSessions.push(currentSession);
+  });
+  
+  return allSessions.sort((a, b) => b.startTime - a.startTime);
+}
+
+/**
+ * Converts events to CSV string
+ * @param {Array} events 
+ */
+export function eventsToCsv(events) {
+  const headers = ["Time", "Platform", "Event Name", "Pixel ID", "Method", "URL", "Raw Data"];
+  const rows = events.map(e => [
+    new Date(e.timestamp).toISOString(),
+    e.platform,
+    e.eventName,
+    e.pixelId,
+    e.method || "GET",
+    e.url,
+    JSON.stringify(e.eventData).replace(/"/g, '""')
+  ]);
+  
+  return [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+}

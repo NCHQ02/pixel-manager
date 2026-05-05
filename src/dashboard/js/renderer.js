@@ -1,4 +1,4 @@
-import { formatTime, escapeHtml, extractRichDetails } from './utils.js';
+import { formatTime, escapeHtml, extractRichDetails, auditEvent, detectAdvancedMatching } from './utils.js';
 
 const copySvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 const checkSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0ba360" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
@@ -11,13 +11,14 @@ export class PixelRenderer {
   }
 
   /**
-   * Renders the event list based on filtered events
-   * @param {Array} events 
+   * Renders the event list
+   * @param {Array} data 
+   * @param {boolean} isSessionView 
    */
-  render(events) {
+  render(data, isSessionView = false) {
     this.tableBody.innerHTML = "";
 
-    if (events.length === 0) {
+    if (data.length === 0) {
       this.emptyState.style.display = "flex";
       this.table.style.display = "none";
       return;
@@ -26,13 +27,46 @@ export class PixelRenderer {
     this.emptyState.style.display = "none";
     this.table.style.display = "table";
 
-    // Use DocumentFragment for better performance
-    const fragment = document.createDocumentFragment();
+    if (isSessionView) {
+      this.renderSessions(data);
+    } else {
+      this.renderStream(data);
+    }
+  }
 
+  renderStream(events) {
+    const fragment = document.createDocumentFragment();
     events.forEach((event) => {
       const { tr, detailsTr } = this.createEventRows(event);
       fragment.appendChild(tr);
       fragment.appendChild(detailsTr);
+    });
+    this.tableBody.appendChild(fragment);
+  }
+
+  renderSessions(sessions) {
+    const fragment = document.createDocumentFragment();
+
+    sessions.forEach((session) => {
+      // Session Header Row (acts as a separator)
+      const headerTr = document.createElement("tr");
+      headerTr.className = "session-header-row";
+      headerTr.innerHTML = `
+        <td colspan="5">
+          <div class="session-divider">
+            <span class="eyebrow">${formatTime(session.startTime)}</span>
+            <span class="session-url body-sm">${session.hostname}</span>
+            <span class="badge">${session.events.length} events</span>
+          </div>
+        </td>
+      `;
+      fragment.appendChild(headerTr);
+
+      session.events.sort((a, b) => b.timestamp - a.timestamp).forEach((event) => {
+        const { tr, detailsTr } = this.createEventRows(event);
+        fragment.appendChild(tr);
+        fragment.appendChild(detailsTr);
+      });
     });
 
     this.tableBody.appendChild(fragment);
@@ -52,6 +86,11 @@ export class PixelRenderer {
       ? "https://img.icons8.com/fluency/48/meta.png"
       : "https://img.icons8.com/color/48/tiktok--v1.png";
 
+    const warnings = auditEvent(event);
+    const hasWarning = warnings.length > 0;
+    const amKeys = detectAdvancedMatching(event.eventData, event.platform);
+    const hasAM = amKeys.length > 0;
+
     tr.innerHTML = `
       <td class="caption time-col">${formatTime(event.timestamp)}</td>
       <td class="method-col"><span class="method-badge">${event.method || "GET"}</span></td>
@@ -62,8 +101,12 @@ export class PixelRenderer {
         </div>
       </td>
       <td class="event-col">
-        <div style="display: flex; flex-direction: column;">
-          <span style="font-weight: 600;" class="body-sm">${event.eventName}</span>
+        <div style="display: flex; flex-direction: column; position: relative;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 600;" class="body-sm">${event.eventName}</span>
+            ${hasAM ? '<span class="badge-am">AM</span>' : ''}
+            ${hasWarning ? '<span class="warning-dot"></span>' : ''}
+          </div>
           <span class="caption" style="opacity: 0.6; font-size: 10px;">ID: ${event.pixelId}</span>
         </div>
       </td>
@@ -148,8 +191,22 @@ export class PixelRenderer {
       `;
     });
 
+    const warnings = auditEvent(event);
+    let auditHtml = "";
+    if (warnings.length > 0) {
+      auditHtml = `
+        <div class="audit-banner">
+          <p class="eyebrow" style="color: #c53030; margin-bottom: 8px;">Audit Warnings</p>
+          <ul class="audit-list">
+            ${warnings.map(w => `<li class="body-sm">${w}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+
     td.innerHTML = `
       <div class="details-pane">
+        ${auditHtml}
         <div class="details-header">
           <h3 class="headline">Event Details</h3>
           <span class="event-id caption">ID: ${event.id}</span>

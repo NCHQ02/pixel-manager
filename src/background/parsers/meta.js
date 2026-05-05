@@ -38,10 +38,7 @@ export function parseMetaRequest(url, details) {
   }
 
   // Filter out noise like Microdata pings which are not "real" events in Meta Pixel Helper
-  if (eventName === "Microdata" || eventName === "SubscribedButtonClick") {
-    // We can still capture them, but maybe flag them?
-    // For now, let's keep them but make sure deduplication handles them.
-  }
+  const isDiagnostic = eventName === "Microdata" || eventName === "SubscribedButtonClick";
 
-  return { platform: "Meta", pixelId, eventName, eventData };
+  return { platform: "Meta", pixelId, eventName, eventData, isDiagnostic };
 }

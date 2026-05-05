@@ -96,17 +96,21 @@ body {
 .layout {
   display: flex;
   height: 100vh;
+  padding: 12px;
+  gap: 12px;
 }
 
 /* Sidebar */
 .sidebar {
-  width: 300px;
-  border-right: 1px solid var(--colors-border);
+  width: 280px;
+  border: 1px solid var(--colors-border);
+  border-radius: 20px;
   display: flex;
   flex-direction: column;
-  background: var(--colors-surface);
+  background: white;
   padding: var(--spacing-lg) var(--spacing-md);
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
 .sidebar-header {
@@ -261,9 +265,69 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--colors-border);
+}
+
+.toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.toggle-container input {
+  width: 40px;
+  height: 20px;
+  appearance: none;
+  background: var(--colors-border);
+  border-radius: 20px;
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.toggle-container input:checked {
+  background: var(--colors-ink);
+}
+
+.toggle-container input::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s;
+}
+
+.toggle-container input:checked::before {
+  transform: translateX(20px);
 }
 
 /* Buttons */
+.empty-state {
+  display: none; /* toggled by JS */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 80px 40px;
+}
+
+.empty-state h3 {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.98); }
+}
+
 .button-pill {
   display: inline-flex;
   align-items: center;
@@ -294,30 +358,30 @@ body {
   flex-direction: column;
   overflow-y: auto;
   padding: var(--spacing-xl);
-  background: var(--colors-bg);
+  background: white;
+  border: 1px solid var(--colors-border);
+  border-radius: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
 .color-block {
-  border-radius: 24px;
+  border-radius: 16px;
   padding: var(--spacing-xl);
-  transition: background-color 0.4s ease;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
-.bg-lilac {
-  background: var(--colors-block-lilac);
-}
-.bg-cream {
-  background: var(--colors-block-cream);
-}
-.bg-meta {
-  background: var(--colors-block-meta);
-}
-.bg-tiktok {
-  background: var(--colors-block-tiktok);
-}
+.bg-lilac { background: var(--colors-block-lilac); }
+.bg-cream { background: var(--colors-block-cream); }
+.bg-meta { background: var(--colors-block-meta); }
+.bg-tiktok { background: var(--colors-block-tiktok); }
 
 .hero {
   margin-bottom: var(--spacing-xl);
+}
+
+.hero .display-lg {
+  margin-bottom: 12px;
 }
 
 .data-section {
@@ -496,13 +560,71 @@ pre {
   margin: 0;
 }
 
-.empty-state {
-  display: none; /* toggled by JS */
-  flex-direction: column;
+/* Session View */
+.session-header-row td {
+  padding: 40px 0 16px 0;
+  border-bottom: none;
+  background: white;
+}
+
+.session-divider {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 64px;
+  gap: 16px;
+  padding: 0 24px;
+}
+
+.session-url {
+  font-weight: 600;
+  color: var(--colors-ink);
+}
+
+.badge {
+  background: var(--colors-ink);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+/* Audit Styles */
+.warning-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: #c53030;
+  border-radius: 50%;
+}
+
+.badge-am {
+  background: #008080;
+  color: white;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.audit-banner {
+  background: #fff5f5;
+  border-left: 4px solid #c53030;
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin-bottom: var(--spacing-lg);
+}
+
+.audit-list {
+  padding-left: 20px;
+  margin: 0;
+  color: #c53030;
+}
+
+.audit-list li {
+  margin-bottom: 4px;
 }
 
 /* Modal */
