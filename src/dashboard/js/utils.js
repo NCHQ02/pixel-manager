@@ -314,6 +314,33 @@ export function detectAdvancedMatching(eventData, platform) {
 }
 
 /**
+ * Detects plaintext PII (Email, Phone) in event data.
+ * @param {object} obj 
+ * @param {Array} warnings 
+ * @param {string} path 
+ */
+function detectPlaintextPII(obj, warnings, path = "data") {
+  if (!obj || typeof obj !== "object") return;
+
+  const EMAIL_REGEX = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+  const PHONE_REGEX = /(\+?\d{1,4}[\s-])?\(?\d{3}\)?[\s-]\d{3}[\s-]\d{4}/;
+
+  for (const [key, value] of Object.entries(obj)) {
+    const currentPath = `${path}.${key}`;
+    
+    if (typeof value === "string") {
+      if (EMAIL_REGEX.test(value)) {
+        warnings.push(`Plaintext Email detected at '${currentPath}'. This violates privacy policies if not hashed (SHA-256).`);
+      } else if (PHONE_REGEX.test(value)) {
+        warnings.push(`Plaintext Phone Number detected at '${currentPath}'. This violates privacy policies if not hashed (SHA-256).`);
+      }
+    } else if (typeof value === "object" && value !== null) {
+      detectPlaintextPII(value, warnings, currentPath);
+    }
+  }
+}
+
+/**
  * Advanced Audit & Validation for Pixel events
  * @param {object} event
  * @returns {Array} List of warning messages
@@ -327,6 +354,9 @@ export function auditEvent(event) {
       "Duplicate Firing Detected: This event was fired multiple times simultaneously. Check for duplicate pixel installations or double tag triggers.",
     );
   }
+
+  // Generic PII Check for all platforms
+  detectPlaintextPII(eventData, warnings);
 
   const isSha256 = (str) => /^[a-f0-9]{64}$/i.test(String(str).trim());
   const isCurrency = (str) => /^[A-Z]{3}$/i.test(String(str).trim());
@@ -349,14 +379,14 @@ export function auditEvent(event) {
       }
     }
 
-    // PII / Advanced Matching validation
+    // PII / Advanced Matching validation (Specific keys)
     if (eventData.ud) {
       Object.keys(eventData.ud).forEach((k) => {
         const val = eventData.ud[k];
         if (val && !isSha256(val) && (k === "em" || k === "ph")) {
-          warnings.push(
-            `User Data '${k}' is unhashed plaintext. It must be SHA-256 hashed for privacy compliance.`,
-          );
+          if (!warnings.some(w => w.includes(`'${k}'`))) {
+             warnings.push(`User Data '${k}' is unhashed plaintext. It must be SHA-256 hashed for privacy compliance.`);
+          }
         }
       });
     }
@@ -379,32 +409,11 @@ export function auditEvent(event) {
         warnings.push("Missing 'currency' parameter for CompletePayment.");
       }
     }
-
-    // PII validation
-    const checkTikTokPII = (val, fieldName) => {
-      if (val && !isSha256(val)) {
-        warnings.push(
-          `User Data '${fieldName}' is unhashed plaintext. It must be SHA-256 hashed.`,
-        );
-      }
-    };
-
-    if (eventData.em) checkTikTokPII(eventData.em, "em");
-    if (eventData.ph) checkTikTokPII(eventData.ph, "ph");
-
-    if (eventData.context && eventData.context.user) {
-      if (eventData.context.user.email)
-        checkTikTokPII(eventData.context.user.email, "context.user.email");
-      if (eventData.context.user.phone_number)
-        checkTikTokPII(
-          eventData.context.user.phone_number,
-          "context.user.phone_number",
-        );
-    }
   }
 
   return warnings;
 }
+
 
 /**
  * Groups events by Session (Tab ID + Inactivity window)
