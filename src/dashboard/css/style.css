@@ -131,8 +131,8 @@ body {
 
 .brand {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 14px;
 }
 
 .brand-info {
@@ -142,10 +142,12 @@ body {
 }
 
 .brand-info h1 {
-  font-size: 18px;
+  font-family: var(--font-sans);
+  font-size: 19px;
   font-weight: 700;
   color: var(--colors-ink);
-  letter-spacing: -0.5px;
+  letter-spacing: -0.6px;
+  line-height: 1;
 }
 
 .status-mini {
@@ -170,10 +172,11 @@ body {
 }
 
 .caption-xs {
+  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
 }
 
 

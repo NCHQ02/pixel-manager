@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Social Pixel Tracker (Meta & TikTok)",
-  "version": "2.0.0",
-  "description": "Theo dõi và hiển thị Meta (Facebook) và TikTok Pixel events.",
+  "name": "OmniSignal - Multi-Platform Pixel Tracker",
+  "version": "2.1.0",
+  "description": "Universal event interception and analysis for Meta, TikTok, and Google Suite.",
   "icons": {
     "16": "logo.png",
     "48": "logo.png",
