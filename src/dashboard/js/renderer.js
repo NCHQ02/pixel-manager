@@ -1,4 +1,10 @@
-import { formatTime, escapeHtml, extractRichDetails, auditEvent, detectAdvancedMatching } from './utils.js';
+import {
+  formatTime,
+  escapeHtml,
+  extractRichDetails,
+  auditEvent,
+  detectAdvancedMatching,
+} from "./utils.js";
 
 const copySvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 const checkSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0ba360" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
@@ -7,13 +13,13 @@ export class PixelRenderer {
   constructor(tableBodyId, emptyStateId) {
     this.tableBody = document.getElementById(tableBodyId);
     this.emptyState = document.getElementById(emptyStateId);
-    this.table = this.tableBody.closest('table');
+    this.table = this.tableBody.closest("table");
   }
 
   /**
    * Renders the event list
-   * @param {Array} data 
-   * @param {boolean} isSessionView 
+   * @param {Array} data
+   * @param {boolean} isSessionView
    */
   render(data, isSessionView = false) {
     this.tableBody.innerHTML = "";
@@ -62,11 +68,13 @@ export class PixelRenderer {
       `;
       fragment.appendChild(headerTr);
 
-      session.events.sort((a, b) => b.timestamp - a.timestamp).forEach((event) => {
-        const { tr, detailsTr } = this.createEventRows(event);
-        fragment.appendChild(tr);
-        fragment.appendChild(detailsTr);
-      });
+      session.events
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .forEach((event) => {
+          const { tr, detailsTr } = this.createEventRows(event);
+          fragment.appendChild(tr);
+          fragment.appendChild(detailsTr);
+        });
     });
 
     this.tableBody.appendChild(fragment);
@@ -74,7 +82,7 @@ export class PixelRenderer {
 
   /**
    * Creates the main and detail rows for an event
-   * @param {object} event 
+   * @param {object} event
    */
   createEventRows(event) {
     // Main Row
@@ -82,14 +90,19 @@ export class PixelRenderer {
     tr.className = "event-row";
 
     let platformIconUrl = "https://img.icons8.com/color/48/tiktok--v1.png";
-    if (event.platform === "Meta") platformIconUrl = "https://img.icons8.com/fluency/48/meta.png";
-    else if (["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(event.platform)) {
-      if (event.platform === "DataLayer") {
-        platformIconUrl = "https://img.icons8.com/color/48/code.png";
-      } else {
-        platformIconUrl = "https://img.icons8.com/color/48/google-logo.png";
-      }
-    }
+    if (event.platform === "Meta")
+      platformIconUrl = "https://img.icons8.com/fluency/48/meta.png";
+    else if (event.platform === "GA4")
+      platformIconUrl =
+        "https://fonts.gstatic.com/s/i/productlogos/google_analytics/v6/192px.svg";
+    else if (event.platform === "Google Ads")
+      platformIconUrl = "https://img.icons8.com/color/48/google-ads.png";
+    else if (event.platform === "Floodlight")
+      platformIconUrl =
+        "https://fonts.gstatic.com/s/i/productlogos/marketing_platform/v6/192px.svg";
+    else if (event.platform === "DataLayer")
+      platformIconUrl =
+        "https://img.icons8.com/doodle/48/google-tag-manager.png";
 
     const warnings = auditEvent(event);
     const hasWarning = warnings.length > 0;
@@ -109,9 +122,9 @@ export class PixelRenderer {
         <div style="display: flex; flex-direction: column; position: relative;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-weight: 600;" class="body-sm">${event.eventName}</span>
-            ${hasAM ? '<span class="badge-am">AM</span>' : ''}
-            ${event.eventData.gcs ? `<span class="badge-am" style="background:#4A90E2">GCS: ${escapeHtml(event.eventData.gcs)}</span>` : ''}
-            ${hasWarning ? '<span class="warning-dot"></span>' : ''}
+            ${hasAM ? '<span class="badge-am">AM</span>' : ""}
+            ${event.eventData.gcs ? `<span class="badge-am" style="background:#4A90E2">GCS: ${escapeHtml(event.eventData.gcs)}</span>` : ""}
+            ${hasWarning ? '<span class="warning-dot"></span>' : ""}
           </div>
           <span class="caption" style="opacity: 0.6; font-size: 10px;">ID: ${event.pixelId}</span>
         </div>
@@ -148,7 +161,7 @@ export class PixelRenderer {
 
   /**
    * Creates the expanded details cell
-   * @param {object} event 
+   * @param {object} event
    */
   createDetailsContent(event) {
     const td = document.createElement("td");
@@ -204,7 +217,7 @@ export class PixelRenderer {
         <div class="audit-banner">
           <p class="eyebrow" style="color: #c53030; margin-bottom: 8px;">Audit Warnings</p>
           <ul class="audit-list">
-            ${warnings.map(w => `<li class="body-sm">${w}</li>`).join("")}
+            ${warnings.map((w) => `<li class="body-sm">${w}</li>`).join("")}
           </ul>
         </div>
       `;
