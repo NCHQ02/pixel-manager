@@ -139,24 +139,72 @@ export function detectAdvancedMatching(eventData, platform) {
 }
 
 /**
- * Basic Audit for Pixel events
+ * Advanced Audit & Validation for Pixel events
  * @param {object} event 
  * @returns {Array} List of warning messages
  */
 export function auditEvent(event) {
   const warnings = [];
   const { platform, eventName, eventData } = event;
+  const isSha256 = (str) => /^[a-f0-9]{64}$/i.test(String(str).trim());
+  const isCurrency = (str) => /^[A-Z]{3}$/i.test(String(str).trim());
 
   if (platform === "Meta") {
-    if (eventName === "Purchase" && (!eventData.cd || !eventData.cd.value)) {
-      warnings.push("Missing 'value' parameter for Purchase event.");
+    // Schema validation for Purchase
+    if (eventName === "Purchase") {
+      if (!eventData.cd || eventData.cd.value === undefined) {
+        warnings.push("Missing 'value' parameter for Purchase event.");
+      } else if (isNaN(parseFloat(eventData.cd.value))) {
+        warnings.push("'value' parameter must be a valid number.");
+      }
+      
+      if (!eventData.cd || !eventData.cd.currency) {
+        warnings.push("Missing 'currency' parameter for Purchase event.");
+      } else if (!isCurrency(eventData.cd.currency)) {
+        warnings.push("'currency' parameter should be a valid 3-letter ISO code.");
+      }
     }
-    if (eventName === "Purchase" && (!eventData.cd || !eventData.cd.currency)) {
-      warnings.push("Missing 'currency' parameter for Purchase event.");
+
+    // PII / Advanced Matching validation
+    if (eventData.ud) {
+      Object.keys(eventData.ud).forEach(k => {
+        const val = eventData.ud[k];
+        if (val && !isSha256(val) && (k === 'em' || k === 'ph')) {
+          warnings.push(`User Data '${k}' is unhashed plaintext. It must be SHA-256 hashed for privacy compliance.`);
+        }
+      });
     }
   } else if (platform === "TikTok") {
-    if (eventName === "CompletePayment" && (!eventData.properties || !eventData.properties.value)) {
-      warnings.push("Missing 'value' parameter for CompletePayment.");
+    // Schema validation for CompletePayment
+    if (eventName === "CompletePayment") {
+      if (!eventData.properties || eventData.properties.value === undefined) {
+        warnings.push("Missing 'value' parameter for CompletePayment.");
+      } else if (isNaN(parseFloat(eventData.properties.value))) {
+        warnings.push("'value' parameter must be a valid number.");
+      }
+
+      if (eventData.properties && eventData.properties.currency) {
+         if (!isCurrency(eventData.properties.currency)) {
+           warnings.push("'currency' parameter should be a valid 3-letter ISO code.");
+         }
+      } else {
+         warnings.push("Missing 'currency' parameter for CompletePayment.");
+      }
+    }
+
+    // PII validation
+    const checkTikTokPII = (val, fieldName) => {
+      if (val && !isSha256(val)) {
+        warnings.push(`User Data '${fieldName}' is unhashed plaintext. It must be SHA-256 hashed.`);
+      }
+    };
+
+    if (eventData.em) checkTikTokPII(eventData.em, "em");
+    if (eventData.ph) checkTikTokPII(eventData.ph, "ph");
+    
+    if (eventData.context && eventData.context.user) {
+      if (eventData.context.user.email) checkTikTokPII(eventData.context.user.email, "context.user.email");
+      if (eventData.context.user.phone_number) checkTikTokPII(eventData.context.user.phone_number, "context.user.phone_number");
     }
   }
   

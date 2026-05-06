@@ -14,9 +14,16 @@ const renderer = new PixelRenderer("events-table-body", "empty-state");
 const searchInput = document.getElementById("global-search");
 const tabSelector = document.getElementById("tab-selector");
 const clearBtn = document.getElementById("clear-all-btn");
+const settingsBtn = document.getElementById("settings-btn");
 const sessionToggle = document.getElementById("session-view-toggle");
 const exportJsonBtn = document.getElementById("export-json-btn");
 const exportCsvBtn = document.getElementById("export-csv-btn");
+
+const settingsModal = document.getElementById("settings-modal");
+const closeSettingsBtn = document.getElementById("close-settings-btn");
+const saveSettingsBtn = document.getElementById("save-settings-btn");
+const settingMaxEvents = document.getElementById("setting-max-events");
+const settingSessionWindow = document.getElementById("setting-session-window");
 
 const tabAll = document.getElementById("tab-all");
 const tabMeta = document.getElementById("tab-meta");
@@ -65,7 +72,8 @@ function updateUI() {
   }
 
   if (isSessionView) {
-    const sessions = groupEventsBySession(filteredEvents);
+    const windowMs = store.settings?.sessionWindow || 1800000;
+    const sessions = groupEventsBySession(filteredEvents, windowMs);
     renderer.render(sessions, true);
   } else {
     renderer.render(filteredEvents, false);
@@ -207,6 +215,29 @@ clearBtn.addEventListener("click", async () => {
   if (confirmed) {
     store.clearAll();
   }
+});
+
+settingsBtn.addEventListener("click", () => {
+  settingMaxEvents.value = store.settings?.maxEvents || "500";
+  settingSessionWindow.value = store.settings?.sessionWindow || "1800000";
+  settingsModal.style.display = "flex";
+});
+
+const closeSettings = () => {
+  settingsModal.style.display = "none";
+};
+
+closeSettingsBtn.addEventListener("click", closeSettings);
+settingsModal.addEventListener("click", (e) => {
+  if (e.target === settingsModal) closeSettings();
+});
+
+saveSettingsBtn.addEventListener("click", async () => {
+  const maxEvents = parseInt(settingMaxEvents.value, 10);
+  const sessionWindow = parseInt(settingSessionWindow.value, 10);
+  await store.saveSettings({ maxEvents, sessionWindow });
+  closeSettings();
+  updateUI();
 });
 
 // --- Initialization ---

@@ -77,6 +77,9 @@
             </label>
           </div>
 
+          <button id="settings-btn" class="button-pill button-outline" style="margin-bottom: 8px;">
+            Settings
+          </button>
           <button id="clear-all-btn" class="button-pill button-outline">
             Clear canvas
           </button>
@@ -139,6 +142,39 @@
           <button id="modal-cancel" class="button-pill button-outline">Cancel</button>
           <button id="modal-confirm" class="button-pill" style="background: var(--colors-ink); color: white;">Confirm</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay" style="display: none;">
+      <div class="modal-dialog color-block bg-cream" style="max-width: 400px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+          <h3 class="headline" style="margin: 0;">Settings</h3>
+          <button id="close-settings-btn" style="background: none; border: none; cursor: pointer; font-size: 18px;">✕</button>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+          <label class="body-sm" style="font-weight: 600; display: block; margin-bottom: 8px;">Max Events per Tab</label>
+          <select id="setting-max-events" class="tab-select" style="margin-bottom: 4px;">
+            <option value="50">50 Events</option>
+            <option value="200">200 Events</option>
+            <option value="500">500 Events</option>
+            <option value="1000">1000 Events</option>
+          </select>
+          <p class="caption" style="opacity: 0.7; margin: 0;">Higher limits consume more browser memory.</p>
+        </div>
+        
+        <div style="margin-bottom: 32px;">
+          <label class="body-sm" style="font-weight: 600; display: block; margin-bottom: 8px;">Session Grouping Window</label>
+          <select id="setting-session-window" class="tab-select">
+            <option value="300000">5 Minutes</option>
+            <option value="900000">15 Minutes</option>
+            <option value="1800000">30 Minutes</option>
+            <option value="3600000">1 Hour</option>
+          </select>
+        </div>
+        
+        <button id="save-settings-btn" class="button-pill" style="background: var(--colors-ink); color: white; width: 100%;">Save Preferences</button>
       </div>
     </div>
 

@@ -224,7 +224,7 @@ export class PixelRenderer {
           </div>
         </div>
         <div class="code-block raw-payload-content" style="display: none;">
-          <pre>${paramsJson}</pre>
+          <pre>${escapeHtml(paramsJson)}</pre>
         </div>
       </div>
     `;

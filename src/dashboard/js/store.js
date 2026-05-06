@@ -4,23 +4,38 @@
 export class PixelStore {
   constructor() {
     this.events = {};
+    this.settings = { maxEvents: 500, sessionWindow: 1800000 };
     this.listeners = [];
     this.init();
   }
 
   async init() {
     // Initial load
-    const result = await chrome.storage.local.get(["trackedEvents"]);
+    const result = await chrome.storage.local.get(["trackedEvents", "settings"]);
     this.events = result.trackedEvents || {};
+    if (result.settings) this.settings = result.settings;
     this.notify();
 
     // Listen for storage changes
     chrome.storage.onChanged.addListener((changes, namespace) => {
-      if (namespace === "local" && changes.trackedEvents) {
-        this.events = changes.trackedEvents.newValue || {};
-        this.notify();
+      if (namespace === "local") {
+        let shouldNotify = false;
+        if (changes.trackedEvents) {
+          this.events = changes.trackedEvents.newValue || {};
+          shouldNotify = true;
+        }
+        if (changes.settings) {
+          this.settings = changes.settings.newValue || this.settings;
+          shouldNotify = true;
+        }
+        if (shouldNotify) this.notify();
       }
     });
+  }
+
+  async saveSettings(newSettings) {
+    this.settings = { ...this.settings, ...newSettings };
+    await chrome.storage.local.set({ settings: this.settings });
   }
 
   /**

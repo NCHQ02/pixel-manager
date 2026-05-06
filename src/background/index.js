@@ -1,20 +1,41 @@
 import { parseMetaRequest } from './parsers/meta.js';
 import { parseTikTokRequest } from './parsers/tiktok.js';
 
-let trackedEvents = {};
+// --- Storage Mutex Queue ---
+let updateQueue = Promise.resolve();
 
-// Keep local state in sync with storage
-chrome.storage.local.get(["trackedEvents"], (result) => {
-  if (chrome.runtime.lastError) {
-    console.error("Storage error:", chrome.runtime.lastError);
-  }
-  trackedEvents = (result && result.trackedEvents) ? result.trackedEvents : {};
-});
+function enqueueStorageUpdate(updateFn) {
+  updateQueue = updateQueue.then(() => {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(["trackedEvents", "settings"], (res) => {
+        let events = res.trackedEvents || {};
+        let settings = res.settings || { maxEvents: 500 };
+        const shouldSave = updateFn(events, settings);
+        if (shouldSave !== false) {
+          chrome.storage.local.set({ trackedEvents: events }, () => {
+            resolve();
+          });
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
+}
 
-chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === "local" && changes.trackedEvents) {
-    trackedEvents = changes.trackedEvents.newValue || {};
-  }
+// Startup cleanup: remove data for closed tabs
+chrome.tabs.query({}, (tabs) => {
+  const activeTabIds = new Set(tabs.map(t => t.id.toString()));
+  enqueueStorageUpdate((events) => {
+    let changed = false;
+    for (const tabId in events) {
+      if (tabId !== "background_worker" && !activeTabIds.has(tabId)) {
+        delete events[tabId];
+        changed = true;
+      }
+    }
+    return changed;
+  });
 });
 
 function extractUniversalBody(details) {
@@ -127,14 +148,15 @@ chrome.webRequest.onBeforeRequest.addListener(
         status: "success"
       };
 
-      if (!trackedEvents[tabId]) trackedEvents[tabId] = [];
-      trackedEvents[tabId].unshift(eventRecord);
+      enqueueStorageUpdate((events, settings) => {
+        if (!events[tabId]) events[tabId] = [];
+        events[tabId].unshift(eventRecord);
 
-      if (trackedEvents[tabId].length > 500) {
-        trackedEvents[tabId].pop();
-      }
-
-      chrome.storage.local.set({ trackedEvents });
+        const limit = settings.maxEvents || 500;
+        while (events[tabId].length > limit) {
+          events[tabId].pop();
+        }
+      });
 
     } catch (err) {
       console.error("[Pixel Tracker] Critical error processing request:", err);
@@ -164,10 +186,13 @@ chrome.action.onClicked.addListener((tab) => {
 
 // Function to clear events for a specific tab
 const clearTabEvents = (tabId) => {
-  if (trackedEvents[tabId]) {
-    delete trackedEvents[tabId];
-    chrome.storage.local.set({ trackedEvents });
-  }
+  enqueueStorageUpdate((events) => {
+    if (events[tabId]) {
+      delete events[tabId];
+      return true;
+    }
+    return false;
+  });
   
   // Also clear deduplication fingerprints for this tab
   if (globalThis.lastEventFingerprints) {
