@@ -104,7 +104,7 @@ chrome.webRequest.onBeforeRequest.addListener(
           } else if (d.event_name && typeof d.event_name === 'string') {
             parsed.eventName = d.event_name;
           } else if (d.action) {
-            if (d.action === "Pf") parsed.eventName = "Pageview";
+            if (d.action === "Pf") parsed.eventName = "PerformancePing";
             else parsed.eventName = d.action;
           }
           
@@ -116,7 +116,7 @@ chrome.webRequest.onBeforeRequest.addListener(
           // Re-evaluate isDiagnostic AFTER eventName is fully resolved from body.
           // The parser sets isDiagnostic before POST body is merged, so "Unknown" events
           // that were later resolved to a real name would be incorrectly flagged.
-          const TIKTOK_DIAG_EVENTS = new Set(["Unknown", "Metadata", "SubscribedButtonClick"]);
+          const TIKTOK_DIAG_EVENTS = new Set(["Unknown", "Metadata", "SubscribedButtonClick", "PerformancePing"]);
           parsed.isDiagnostic = TIKTOK_DIAG_EVENTS.has(parsed.eventName);
         }
 
@@ -136,7 +136,7 @@ chrome.webRequest.onBeforeRequest.addListener(
            
            // Strip universal cachebusters and timestamps
            delete clone.z; delete clone._z; delete clone._r; delete clone.rnd; delete clone.ord; // Google
-           delete clone.ts; delete clone.req; delete clone.rqm; // Meta
+           delete clone.ts; delete clone.req; delete clone.rqm; delete clone.r; // Meta
            delete clone.timestamp; delete clone._t; delete clone.message_id; // TikTok
            
            // Exclude our internal parser properties
@@ -153,25 +153,19 @@ chrome.webRequest.onBeforeRequest.addListener(
            dedupeKey = JSON.stringify(stableObj);
         }
 
-        const fingerprint = `${tabId}:${parsed.platform}:${parsed.pixelId}:${parsed.eventName}:${dedupeKey}`;
+        const broadFingerprint = `${tabId}:${parsed.platform}:${parsed.pixelId}:${parsed.eventName}`;
         const now = Date.now();
         
-        const lastSeen = globalThis.lastEventFingerprints.get(fingerprint);
-        if (lastSeen && (now - lastSeen.timestamp < 2000)) {
-          // If methods differ (POST vs GET), it's a browser fallback request. Safely drop it.
-          if (lastSeen.method !== details.method) {
-            return;
-          }
-          // Floodlight intentionally fires multiple GETs via iframes/imgs. Drop them to keep it neat.
-          else if (parsed.platform === "Floodlight") {
-            return;
-          }
-          // Same method (e.g., POST & POST) means the website actually triggered the tag twice!
-          else {
-            parsed.eventData._duplicateWarning = true;
-          }
+        // Aggressive Deduplication:
+        // If we see the exact same Event Name for the same Pixel within 1500ms, 
+        // it's almost certainly a browser fallback (GET + POST) or an errant network double-fire 
+        // (like an img tag + script tag). Official Pixel Helpers hide these natively.
+        const lastBroad = globalThis.lastEventFingerprints.get(broadFingerprint);
+        if (lastBroad && (now - lastBroad.timestamp < 1500)) {
+           return; // Drop it completely to match the clean view of official helpers
         }
-        globalThis.lastEventFingerprints.set(fingerprint, { timestamp: now, method: details.method });
+        
+        globalThis.lastEventFingerprints.set(broadFingerprint, { timestamp: now, method: details.method });
         // ----------------------------
 
         let pageUrl = details.initiator || details.documentUrl || details.url;
