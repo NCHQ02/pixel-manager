@@ -154,18 +154,26 @@ chrome.webRequest.onBeforeRequest.addListener(
         }
 
         const broadFingerprint = `${tabId}:${parsed.platform}:${parsed.pixelId}:${parsed.eventName}`;
+        const exactFingerprint = `${broadFingerprint}:${dedupeKey}`;
         const now = Date.now();
         
-        // Aggressive Deduplication:
-        // If we see the exact same Event Name for the same Pixel within 1500ms, 
-        // it's almost certainly a browser fallback (GET + POST) or an errant network double-fire 
-        // (like an img tag + script tag). Official Pixel Helpers hide these natively.
         const lastBroad = globalThis.lastEventFingerprints.get(broadFingerprint);
         if (lastBroad && (now - lastBroad.timestamp < 1500)) {
-           return; // Drop it completely to match the clean view of official helpers
+           // 1. Drop browser fallback (POST vs GET) - this is normal behavior
+           if (lastBroad.method !== details.method) {
+              return; 
+           }
+           
+           // 2. Detect Dev Errors (POST vs POST or GET vs GET with same payload)
+           // We don't return here because we want to SHOW the error to the user
+           const lastExact = globalThis.lastEventFingerprints.get(exactFingerprint);
+           if (lastExact && (now - lastExact.timestamp < 1500)) {
+              parsed.eventData._duplicateWarning = true;
+           }
         }
         
         globalThis.lastEventFingerprints.set(broadFingerprint, { timestamp: now, method: details.method });
+        globalThis.lastEventFingerprints.set(exactFingerprint, { timestamp: now, method: details.method });
         // ----------------------------
 
         let pageUrl = details.initiator || details.documentUrl || details.url;
