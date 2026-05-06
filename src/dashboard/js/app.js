@@ -68,9 +68,8 @@ function updateUI() {
     }
   }
 
-  renderTagsSummary(filteredEvents);
-
-  // Filter by Search Query
+  // Apply search BEFORE rendering Tags Summary so the summary card counts
+  // accurately reflect what the user actually sees in the filtered stream.
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filteredEvents = filteredEvents.filter(
@@ -80,6 +79,8 @@ function updateUI() {
         e.url.toLowerCase().includes(q),
     );
   }
+
+  renderTagsSummary(filteredEvents);
 
   if (isSessionView) {
     const windowMs = store.settings?.sessionWindow || 1800000;

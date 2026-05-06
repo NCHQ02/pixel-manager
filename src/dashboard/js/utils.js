@@ -119,7 +119,7 @@ export function extractRichDetails(eventData, platform) {
         details["E-commerce Items"] = JSON.stringify(items, null, 2);
       }
     } else if (platform === "Google Ads") {
-      if (eventData.gclaw) details["GCLID"] = eventData.gclaw;
+      if (eventData.gclid || eventData.gclaw) details["GCLID"] = eventData.gclid || eventData.gclaw;
       if (eventData.gbraid) details["GBRAID"] = eventData.gbraid;
       if (eventData.wbraid) details["WBRAID"] = eventData.wbraid;
       if (eventData.val) details["Conversion Value"] = eventData.val;

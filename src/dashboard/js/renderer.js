@@ -14,6 +14,8 @@ export class PixelRenderer {
     this.tableBody = document.getElementById(tableBodyId);
     this.emptyState = document.getElementById(emptyStateId);
     this.table = this.tableBody.closest("table");
+    /** Tracks expanded event IDs so state survives re-renders triggered by background pings */
+    this.expandedIds = new Set();
   }
 
   /**
@@ -139,20 +141,30 @@ export class PixelRenderer {
     detailsTr.className = "details-row";
     detailsTr.style.display = "none";
 
-    const detailsContent = this.createDetailsContent(event);
+    const detailsContent = this.createDetailsContent(event, warnings);
     detailsTr.appendChild(detailsContent);
 
-    // Toggle logic
+    // Restore expanded state before this re-render — prevents GA4/TikTok background
+    // pings from collapsing detail rows the user intentionally opened.
+    if (this.expandedIds.has(event.id)) {
+      detailsTr.style.display = "table-row";
+      tr.classList.add("expanded");
+      tr.querySelector(".chevron").innerHTML = `<path d="m18 15-6-6-6 6"/>`;
+    }
+
+    // Toggle logic — sync to expandedIds so state persists across re-renders
     tr.addEventListener("click", () => {
       const isExpanded = detailsTr.style.display === "table-row";
       if (isExpanded) {
         detailsTr.style.display = "none";
         tr.classList.remove("expanded");
         tr.querySelector(".chevron").innerHTML = `<path d="m6 9 6 6 6-6"/>`;
+        this.expandedIds.delete(event.id);
       } else {
         detailsTr.style.display = "table-row";
         tr.classList.add("expanded");
         tr.querySelector(".chevron").innerHTML = `<path d="m18 15-6-6-6 6"/>`;
+        this.expandedIds.add(event.id);
       }
     });
 
@@ -162,8 +174,9 @@ export class PixelRenderer {
   /**
    * Creates the expanded details cell
    * @param {object} event
+   * @param {Array} warnings
    */
-  createDetailsContent(event) {
+  createDetailsContent(event, warnings) {
     const td = document.createElement("td");
     td.colSpan = 5;
     td.className = "details-cell";
@@ -210,7 +223,6 @@ export class PixelRenderer {
       `;
     });
 
-    const warnings = auditEvent(event);
     let auditHtml = "";
     if (warnings.length > 0) {
       auditHtml = `

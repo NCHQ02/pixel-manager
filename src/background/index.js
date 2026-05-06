@@ -112,6 +112,12 @@ chrome.webRequest.onBeforeRequest.addListener(
             const match = d._rawBodyString.match(/"event":"([^"]+)"/);
             if (match) parsed.eventName = match[1];
           }
+
+          // Re-evaluate isDiagnostic AFTER eventName is fully resolved from body.
+          // The parser sets isDiagnostic before POST body is merged, so "Unknown" events
+          // that were later resolved to a real name would be incorrectly flagged.
+          const TIKTOK_DIAG_EVENTS = new Set(["Unknown", "Metadata", "SubscribedButtonClick"]);
+          parsed.isDiagnostic = TIKTOK_DIAG_EVENTS.has(parsed.eventName);
         }
 
         let tabId = details.tabId < 0 ? "background_worker" : details.tabId;
@@ -168,16 +174,24 @@ chrome.webRequest.onBeforeRequest.addListener(
         globalThis.lastEventFingerprints.set(fingerprint, { timestamp: now, method: details.method });
         // ----------------------------
 
+        let pageUrl = details.initiator || details.documentUrl || details.url;
+        if (parsed.platform === "Meta" && parsed.eventData.dl) pageUrl = parsed.eventData.dl;
+        else if (parsed.platform === "TikTok" && parsed.eventData.context && parsed.eventData.context.page && parsed.eventData.context.page.url) pageUrl = parsed.eventData.context.page.url;
+        else if (parsed.platform === "GA4" && parsed.eventData.dl) pageUrl = parsed.eventData.dl;
+
         const eventRecord = {
           id: Date.now().toString() + Math.random().toString().slice(2, 6),
+          tabId: String(tabId),
           platform: parsed.platform,
           pixelId: parsed.pixelId,
           eventName: parsed.eventName,
           eventData: parsed.eventData,
-          url: details.url,
+          url: pageUrl,
+          pixelUrl: details.url,
           method: details.method,
           timestamp: now,
-          status: "success"
+          status: "success",
+          isDiagnostic: parsed.isDiagnostic
         };
 
         enqueueStorageUpdate((events, settings) => {
@@ -205,11 +219,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = sender.tab ? sender.tab.id : "background_worker";
     const payload = message.data.payload[0];
     
-    const eventName = (payload && typeof payload === 'object' && payload.event) ? payload.event : "DataLayer Push";
-    const isDiag = eventName.startsWith('gtm.') || eventName.startsWith('connection__') || eventName.startsWith('optimize.');
+    const rawEventName = (payload && typeof payload === 'object' && payload.event) ? payload.event : "DataLayer Push";
+    
+    // gtm.js is the initial GTM container load — this is a Page Load signal, not noise.
+    // Expose it as "Page View" so it mirrors what Tag Manager Assistant shows.
+    const eventName = rawEventName === 'gtm.js' ? 'Page View (GTM Load)' : rawEventName;
+    
+    // gtm.load, gtm.dom, connection__, optimize.* are low-level lifecycle events → hide in Diagnostics
+    const isDiag = rawEventName === 'gtm.load' ||
+                   rawEventName === 'gtm.dom' ||
+                   rawEventName.startsWith('connection__') ||
+                   rawEventName.startsWith('optimize.');
+                   
+    // Deduplicate DataLayer events
+    if (!globalThis.lastEventFingerprints) {
+      globalThis.lastEventFingerprints = new Map();
+    }
+    const clone = { ...(payload || message.data.payload) };
+    delete clone['gtm.uniqueEventId'];
+    const dedupeKey = JSON.stringify(clone);
+    const fingerprint = `${tabId}:DataLayer:GTM / DOM:${eventName}:${dedupeKey}`;
+    const now = Date.now();
+    const lastSeen = globalThis.lastEventFingerprints.get(fingerprint);
+    if (lastSeen && (now - lastSeen.timestamp < 2000)) {
+      return; // Skip duplicate
+    }
+    globalThis.lastEventFingerprints.set(fingerprint, { timestamp: now, method: "DOM" });
     
     const eventRecord = {
       id: Date.now().toString() + Math.random().toString().slice(2, 6),
+      tabId: String(tabId),
       platform: "DataLayer",
       pixelId: "GTM / DOM",
       eventName: eventName,
@@ -235,11 +274,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const history = message.data.payload;
     if (Array.isArray(history)) {
        history.forEach((item, index) => {
-          const eventName = (item && typeof item === 'object' && item.event) ? item.event : "DataLayer Init";
-          const isDiag = eventName.startsWith('gtm.') || eventName.startsWith('connection__') || eventName.startsWith('optimize.');
+          const rawEventName = (item && typeof item === 'object' && item.event) ? item.event : "DataLayer Init";
+          const eventName = rawEventName === 'gtm.js' ? 'Page View (GTM Load)' : rawEventName;
+          const isDiag = rawEventName === 'gtm.load' ||
+                         rawEventName === 'gtm.dom' ||
+                         rawEventName.startsWith('connection__') ||
+                         rawEventName.startsWith('optimize.');
+
+          // Deduplicate DataLayer events
+          if (!globalThis.lastEventFingerprints) {
+            globalThis.lastEventFingerprints = new Map();
+          }
+          const clone = { ...item };
+          delete clone['gtm.uniqueEventId'];
+          const dedupeKey = JSON.stringify(clone);
+          const fingerprint = `${tabId}:DataLayer:GTM / DOM:${eventName}:${dedupeKey}`;
+          const now = Date.now();
+          const lastSeen = globalThis.lastEventFingerprints.get(fingerprint);
+          if (lastSeen && (now - lastSeen.timestamp < 2000)) {
+            return; // Skip duplicate
+          }
+          globalThis.lastEventFingerprints.set(fingerprint, { timestamp: now, method: "DOM" });
 
           const eventRecord = {
             id: Date.now().toString() + index + Math.random().toString().slice(2, 6),
+            tabId: String(tabId),
             platform: "DataLayer",
             pixelId: "GTM / DOM",
             eventName: eventName,
@@ -285,17 +344,25 @@ chrome.action.onClicked.addListener((tab) => {
 // Function to clear events for a specific tab
 const clearTabEvents = (tabId) => {
   enqueueStorageUpdate((events) => {
+    let changed = false;
     if (events[tabId]) {
       delete events[tabId];
-      return true;
+      changed = true;
     }
-    return false;
+    // GA4 and other pixels sometimes use navigator.sendBeacon or Service Workers
+    // which results in tabId = -1 (mapped to "background_worker").
+    // We must clear these orphan events as well on page reload to avoid ghost data.
+    if (events["background_worker"]) {
+      delete events["background_worker"];
+      changed = true;
+    }
+    return changed;
   });
   
   // Also clear deduplication fingerprints for this tab
   if (globalThis.lastEventFingerprints) {
     for (const [key] of globalThis.lastEventFingerprints) {
-      if (key.startsWith(`${tabId}:`)) {
+      if (key.startsWith(`${tabId}:`) || key.startsWith(`background_worker:`)) {
         globalThis.lastEventFingerprints.delete(key);
       }
     }

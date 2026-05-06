@@ -5,6 +5,7 @@
   function safeClone(obj) {
     const cache = new Set();
     const str = JSON.stringify(obj, (key, value) => {
+      if (value === undefined) return '[undefined]';
       if (typeof value === 'object' && value !== null) {
         // Drop DOM Nodes (which usually contain circular React Fiber references)
         if (value.nodeType || value === window || value === document) {

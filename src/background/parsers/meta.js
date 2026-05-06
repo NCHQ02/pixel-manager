@@ -5,13 +5,14 @@ export function parseMetaRequest(url, details) {
 
   let pixelId = url.searchParams.get("id") || "Unknown";
   let eventName = url.searchParams.get("ev") || "Unknown";
-  let eventData = {};
+  let eventData = { cd: {} };
 
   // Extract from URL params
   url.searchParams.forEach((value, key) => {
     if (key.startsWith("cd[")) {
+      // Accumulate under eventData.cd so auditEvent() can find cd.value / cd.currency
       const cleanKey = key.replace("cd[", "").replace("]", "");
-      eventData[cleanKey] = value;
+      eventData.cd[cleanKey] = value;
     } else if (key !== "id" && key !== "ev") {
       eventData[key] = value;
     }
@@ -30,10 +31,20 @@ export function parseMetaRequest(url, details) {
       const value = formData[key][0];
       if (key.startsWith("cd[")) {
         const cleanKey = key.replace("cd[", "").replace("]", "");
-        eventData[cleanKey] = value;
+        eventData.cd[cleanKey] = value;
       } else if (key !== "id" && key !== "ev") {
         eventData[key] = value;
       }
+    }
+  }
+
+  // Meta sometimes sends `cd` as a serialized JSON string in the POST body.
+  // Merge it into eventData.cd so audit checks (cd.value, cd.currency) work correctly.
+  if (eventData.cd && typeof eventData.cd === 'string') {
+    try {
+      eventData.cd = JSON.parse(eventData.cd);
+    } catch (_e) {
+      // Not valid JSON — keep raw string
     }
   }
 

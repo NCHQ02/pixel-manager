@@ -28,12 +28,33 @@ export function parseGoogleRequest(url, details) {
               eventData[key] = val;
             });
             
-            let eventName = eventData.en || "page_view";
+            let eventName = eventData.en;
+            let isImplicitPing = false;
             
-            // Hard-drop Tag Assistant extension pings
-            if (eventName.startsWith("connection__")) return;
+            if (!eventName) {
+              eventName = eventData._et ? "engagement_time_ping" : "system_ping";
+              isImplicitPing = true;
+            }
             
-            let isDiag = eventName.startsWith("gtm.") || eventName.startsWith("optimize.");
+            // Hard-drop Tag Assistant and implicit pings
+            if (eventName.startsWith("connection__") || isImplicitPing) return;
+            
+            const internalGaEvents = [
+              "open_container_view_sp",
+              "worker_install_success",
+              "guided_tag_install_enabled",
+              "sp__init",
+              "init",
+              "install_success",
+              "engagement_time_ping",
+              "system_ping"
+            ];
+            
+            let isDiag = isImplicitPing || 
+                         eventName.startsWith("gtm.") || 
+                         eventName.startsWith("optimize.") ||
+                         internalGaEvents.includes(eventName);
+
             events.push({
               platform: "GA4",
               pixelId: pixelId,
@@ -48,10 +69,33 @@ export function parseGoogleRequest(url, details) {
 
     // If no batches found (e.g. GET request or empty POST)
     if (events.length === 0) {
-      let eventName = baseData.en || "page_view";
-      if (eventName.startsWith("connection__")) return [];
+      let eventName = baseData.en;
+      let isImplicitPing = false;
       
-      let isDiag = eventName.startsWith("gtm.") || eventName.startsWith("optimize.");
+      if (!eventName) {
+        eventName = baseData._et ? "engagement_time_ping" : "system_ping";
+        isImplicitPing = true;
+      }
+
+      // Hard-drop Tag Assistant and implicit pings
+      if (eventName.startsWith("connection__") || isImplicitPing) return [];
+      
+      const internalGaEvents = [
+        "open_container_view_sp",
+        "worker_install_success",
+        "guided_tag_install_enabled",
+        "sp__init",
+        "init",
+        "install_success",
+        "engagement_time_ping",
+        "system_ping"
+      ];
+      
+      let isDiag = isImplicitPing || 
+                   eventName.startsWith("gtm.") || 
+                   eventName.startsWith("optimize.") ||
+                   internalGaEvents.includes(eventName);
+
       events.push({
         platform: "GA4",
         pixelId: pixelId,
