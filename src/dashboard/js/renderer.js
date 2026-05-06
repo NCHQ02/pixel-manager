@@ -81,10 +81,15 @@ export class PixelRenderer {
     const tr = document.createElement("tr");
     tr.className = "event-row";
 
-    const isMeta = event.platform === "Meta";
-    const platformIconUrl = isMeta
-      ? "https://img.icons8.com/fluency/48/meta.png"
-      : "https://img.icons8.com/color/48/tiktok--v1.png";
+    let platformIconUrl = "https://img.icons8.com/color/48/tiktok--v1.png";
+    if (event.platform === "Meta") platformIconUrl = "https://img.icons8.com/fluency/48/meta.png";
+    else if (["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(event.platform)) {
+      if (event.platform === "DataLayer") {
+        platformIconUrl = "https://img.icons8.com/color/48/code.png";
+      } else {
+        platformIconUrl = "https://img.icons8.com/color/48/google-logo.png";
+      }
+    }
 
     const warnings = auditEvent(event);
     const hasWarning = warnings.length > 0;
@@ -105,6 +110,7 @@ export class PixelRenderer {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-weight: 600;" class="body-sm">${event.eventName}</span>
             ${hasAM ? '<span class="badge-am">AM</span>' : ''}
+            ${event.eventData.gcs ? `<span class="badge-am" style="background:#4A90E2">GCS: ${escapeHtml(event.eventData.gcs)}</span>` : ''}
             ${hasWarning ? '<span class="warning-dot"></span>' : ''}
           </div>
           <span class="caption" style="opacity: 0.6; font-size: 10px;">ID: ${event.pixelId}</span>

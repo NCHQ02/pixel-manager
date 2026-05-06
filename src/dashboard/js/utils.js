@@ -76,6 +76,63 @@ export function extractRichDetails(eventData, platform) {
       if (autoProps.action_event)
         details["Auto Action"] = autoProps.action_event;
     }
+  } else if (["GA4", "Google Ads", "Floodlight"].includes(platform)) {
+    if (platform === "GA4") {
+      if (eventData.tid) details["Measurement ID"] = eventData.tid;
+      if (eventData.cid) details["Client ID"] = eventData.cid;
+      if (eventData.sid) details["Session ID"] = eventData.sid;
+      if (eventData.seg) details["Session Engagement"] = eventData.seg;
+      
+      // Consent Mode decoding
+      if (eventData.gcs) {
+        const gcs = eventData.gcs;
+        if (gcs.length >= 4) {
+          const ad = gcs[2] === '1' ? 'Granted' : 'Denied';
+          const an = gcs[3] === '1' ? 'Granted' : 'Denied';
+          details["Consent (gcs)"] = `Ads: ${ad} | Analytics: ${an}`;
+        } else {
+          details["Consent (gcs)"] = gcs;
+        }
+      }
+      if (eventData.gcd) details["Consent (gcd)"] = eventData.gcd;
+
+      // Extract Event Parameters (ep.) and User Properties (up.)
+      Object.keys(eventData).forEach(k => {
+        if (k.startsWith("ep.")) details[`Param: ${k.replace("ep.", "")}`] = eventData[k];
+        else if (k.startsWith("epn.")) details[`Param (Num): ${k.replace("epn.", "")}`] = eventData[k];
+        else if (k.startsWith("up.")) details[`User Prop: ${k.replace("up.", "")}`] = eventData[k];
+      });
+
+      // E-commerce extraction
+      let items = [];
+      let i = 1;
+      while (eventData[`pr${i}id`] || eventData[`pr${i}nm`]) {
+        let item = {};
+        if (eventData[`pr${i}id`]) item.id = eventData[`pr${i}id`];
+        if (eventData[`pr${i}nm`]) item.name = eventData[`pr${i}nm`];
+        if (eventData[`pr${i}pr`]) item.price = eventData[`pr${i}pr`];
+        if (eventData[`pr${i}qt`]) item.quantity = eventData[`pr${i}qt`];
+        items.push(item);
+        i++;
+      }
+      if (items.length > 0) {
+        details["E-commerce Items"] = JSON.stringify(items, null, 2);
+      }
+    } else if (platform === "Google Ads") {
+      if (eventData.gclaw) details["GCLID"] = eventData.gclaw;
+      if (eventData.gbraid) details["GBRAID"] = eventData.gbraid;
+      if (eventData.wbraid) details["WBRAID"] = eventData.wbraid;
+      if (eventData.val) details["Conversion Value"] = eventData.val;
+      if (eventData.cu) details["Currency"] = eventData.cu;
+    } else if (platform === "Floodlight") {
+      if (eventData.src) details["Advertiser ID"] = eventData.src;
+      if (eventData.type) details["Group Tag"] = eventData.type;
+      if (eventData.cat) details["Activity Tag"] = eventData.cat;
+      if (eventData.ord) details["Order ID"] = eventData.ord;
+      Object.keys(eventData).forEach(k => {
+        if (k.match(/^u\d+$/)) details[`Custom Var (${k})`] = eventData[k];
+      });
+    }
   } else if (platform === "Meta") {
     if (eventData.ev) details["Event Type"] = eventData.ev;
     if (eventData.eid || eventData.event_id)
@@ -101,6 +158,12 @@ export function extractRichDetails(eventData, platform) {
         }
       });
     }
+  } else if (platform === "DataLayer") {
+    Object.keys(eventData).forEach(k => {
+      if (k !== 'event' && k !== 'gtm.uniqueEventId') {
+        details[k] = typeof eventData[k] === 'object' ? JSON.stringify(eventData[k], null, 2) : eventData[k];
+      }
+    });
   }
 
   return details;
@@ -133,6 +196,13 @@ export function detectAdvancedMatching(eventData, platform) {
       if (d.context.user.external_id) amKeys.push("external_id");
       if (d.context.user.email) amKeys.push("email");
     }
+  } else if (platform === "Google Ads") {
+    if (d.em) amKeys.push("email");
+    if (d.ph) amKeys.push("phone");
+    if (d.tv) {
+      if (d.tv.includes('~em')) amKeys.push("email (tv)");
+      if (d.tv.includes('~ph')) amKeys.push("phone (tv)");
+    }
   }
 
   return amKeys;
@@ -146,6 +216,11 @@ export function detectAdvancedMatching(eventData, platform) {
 export function auditEvent(event) {
   const warnings = [];
   const { platform, eventName, eventData } = event;
+
+  if (eventData._duplicateWarning) {
+    warnings.push("Duplicate Firing Detected: This event was fired multiple times simultaneously. Check for duplicate pixel installations or double tag triggers.");
+  }
+
   const isSha256 = (str) => /^[a-f0-9]{64}$/i.test(String(str).trim());
   const isCurrency = (str) => /^[A-Z]{3}$/i.test(String(str).trim());
 

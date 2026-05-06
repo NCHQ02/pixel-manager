@@ -28,10 +28,11 @@ const settingSessionWindow = document.getElementById("setting-session-window");
 const tabAll = document.getElementById("tab-all");
 const tabMeta = document.getElementById("tab-meta");
 const tabTikTok = document.getElementById("tab-tiktok");
+const tabGoogle = document.getElementById("tab-google");
 const tabDiagnostics = document.getElementById("tab-diagnostics");
 
 // Collection of filter buttons for easy state management
-const filterBtns = [tabAll, tabMeta, tabTikTok, tabDiagnostics];
+const filterBtns = [tabAll, tabMeta, tabTikTok, tabGoogle, tabDiagnostics];
 
 const heroSection = document.getElementById("hero-section");
 const heroEyebrow = document.getElementById("hero-eyebrow");
@@ -56,10 +57,14 @@ function updateUI() {
   } else {
     // Normal platforms: Hide diagnostics by default
     filteredEvents = filteredEvents.filter(e => !e.isDiagnostic);
-    if (currentPlatform !== "All") {
+    if (currentPlatform === "Google") {
+      filteredEvents = filteredEvents.filter(e => ["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(e.platform));
+    } else if (currentPlatform !== "All") {
       filteredEvents = filteredEvents.filter(e => e.platform === currentPlatform);
     }
   }
+
+  renderTagsSummary(filteredEvents);
 
   // Filter by Search Query
   if (searchQuery) {
@@ -161,6 +166,12 @@ function setPlatform(platform, btn) {
       desc: "Monitoring page interactions and custom events dispatched to the TikTok Pixel engine.",
       bg: "bg-tiktok"
     },
+    "Google": {
+      eyebrow: "Google Suite",
+      title: "Analytics & Ads",
+      desc: "Comprehensive tracking for GA4, Google Ads Conversions, and DV360 Floodlight tags.",
+      bg: "bg-google"
+    },
     "Diagnostics": {
       eyebrow: "Diagnostics",
       title: "Internal Pings",
@@ -175,7 +186,7 @@ function setPlatform(platform, btn) {
     heroTitle.textContent = config.title;
     heroSubtitle.textContent = config.desc;
     
-    heroSection.classList.remove("bg-lilac", "bg-meta", "bg-tiktok", "bg-cream");
+    heroSection.classList.remove("bg-lilac", "bg-meta", "bg-tiktok", "bg-google", "bg-cream");
     heroSection.classList.add(config.bg);
   }
 
@@ -187,6 +198,7 @@ function setPlatform(platform, btn) {
 tabAll.addEventListener("click", () => setPlatform("All", tabAll));
 tabMeta.addEventListener("click", () => setPlatform("Meta", tabMeta));
 tabTikTok.addEventListener("click", () => setPlatform("TikTok", tabTikTok));
+tabGoogle.addEventListener("click", () => setPlatform("Google", tabGoogle));
 tabDiagnostics.addEventListener("click", () => setPlatform("Diagnostics", tabDiagnostics));
 
 searchInput.addEventListener("input", (e) => {
@@ -239,6 +251,65 @@ saveSettingsBtn.addEventListener("click", async () => {
   closeSettings();
   updateUI();
 });
+
+// --- Tag Assistant Summary Logic ---
+function renderTagsSummary(events) {
+  const container = document.getElementById("tags-summary-container");
+  const list = document.getElementById("tags-summary-list");
+  if (!container || !list) return;
+  
+  list.innerHTML = "";
+  
+  if (currentPlatform === "Diagnostics" || events.length === 0) {
+    container.style.display = "none";
+    return;
+  }
+  
+  container.style.display = "block";
+  
+  const tagsMap = new Map();
+  events.forEach(e => {
+    if (!tagsMap.has(e.pixelId)) {
+      tagsMap.set(e.pixelId, { platform: e.platform, count: 0 });
+    }
+    tagsMap.get(e.pixelId).count++;
+  });
+  
+  tagsMap.forEach((info, pixelId) => {
+    let icon = "https://img.icons8.com/color/48/tiktok--v1.png";
+    if (info.platform === "Meta") icon = "https://img.icons8.com/fluency/48/meta.png";
+    else if (["GA4", "Google Ads", "Floodlight"].includes(info.platform)) icon = "https://img.icons8.com/color/48/google-logo.png";
+    else if (info.platform === "DataLayer") icon = "https://img.icons8.com/color/48/code.png";
+    
+    const card = document.createElement("div");
+    card.style.cssText = `
+      display: flex; align-items: center; gap: 12px; padding: 12px 16px; 
+      background: white; border: 1px solid var(--colors-border); 
+      border-radius: 12px; cursor: pointer; transition: all 0.2s;
+    `;
+    card.innerHTML = `
+      <img src="${icon}" width="24" height="24" />
+      <div>
+        <div style="font-weight: 600; font-size: 14px;">${info.platform}</div>
+        <div class="caption">${pixelId} <span style="opacity:0.5; margin-left:4px;">(${info.count})</span></div>
+      </div>
+    `;
+    card.addEventListener("mouseover", () => card.style.borderColor = "var(--colors-ink)");
+    card.addEventListener("mouseout", () => card.style.borderColor = "var(--colors-border)");
+    card.addEventListener("click", () => {
+       // Tag Assistant feature: Click a tag to filter the stream below to ONLY this tag
+       const tagEvents = events.filter(e => e.pixelId === pixelId);
+       if (isSessionView) {
+         const windowMs = store.settings?.sessionWindow || 1800000;
+         renderer.render(groupEventsBySession(tagEvents, windowMs), true);
+       } else {
+         renderer.render(tagEvents, false);
+       }
+    });
+    
+    list.appendChild(card);
+  });
+}
 
 // --- Initialization ---
 

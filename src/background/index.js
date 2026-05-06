@@ -1,5 +1,6 @@
 import { parseMetaRequest } from './parsers/meta.js';
 import { parseTikTokRequest } from './parsers/tiktok.js';
+import { parseGoogleRequest } from './parsers/google.js';
 
 // --- Storage Mutex Queue ---
 let updateQueue = Promise.resolve();
@@ -73,98 +74,195 @@ chrome.webRequest.onBeforeRequest.addListener(
     try {
       const url = new URL(details.url);
       
-      let parsed = parseMetaRequest(url, details) || parseTikTokRequest(url, details);
-      if (!parsed) return;
+      let parsedResults = parseMetaRequest(url, details) || parseTikTokRequest(url, details) || parseGoogleRequest(url, details);
+      if (!parsedResults) return;
 
       const universalBody = extractUniversalBody(details);
-      
-      // Merge universal body properties into eventData
-      Object.assign(parsed.eventData, universalBody);
+      const resultsArray = Array.isArray(parsedResults) ? parsedResults : [parsedResults];
 
-      // Re-evaluate event name/ID if the universal parser caught something better
-      if (parsed.platform === "TikTok") {
-        const d = parsed.eventData;
+      resultsArray.forEach(parsed => {
+        // Merge universal body properties into eventData
+        Object.assign(parsed.eventData, universalBody);
+
+        // Re-evaluate event name/ID if the universal parser caught something better
+        if (parsed.platform === "TikTok") {
+          const d = parsed.eventData;
+          
+          if (d.pixel_code && typeof d.pixel_code === 'string') {
+            parsed.pixelId = d.pixel_code;
+          } else if (d.pixel && d.pixel.code) {
+            parsed.pixelId = d.pixel.code;
+          } else if (d.context && d.context.pixel && d.context.pixel.code) {
+            parsed.pixelId = d.context.pixel.code;
+          } else if (d._rawBodyString) {
+             const match = d._rawBodyString.match(/"code":"([^"]+)"/);
+             if(match) parsed.pixelId = match[1];
+          }
+
+          if (d.event && typeof d.event === 'string') {
+            parsed.eventName = d.event;
+          } else if (d.event_name && typeof d.event_name === 'string') {
+            parsed.eventName = d.event_name;
+          } else if (d.action) {
+            if (d.action === "Pf") parsed.eventName = "Pageview";
+            else parsed.eventName = d.action;
+          }
+          
+          if (parsed.eventName === "Unknown" && d._rawBodyString) {
+            const match = d._rawBodyString.match(/"event":"([^"]+)"/);
+            if (match) parsed.eventName = match[1];
+          }
+        }
+
+        let tabId = details.tabId < 0 ? "background_worker" : details.tabId;
         
-        // 1. Cứu Pixel ID từ JSON sâu
-        if (d.pixel_code && typeof d.pixel_code === 'string') {
-          parsed.pixelId = d.pixel_code;
-        } else if (d.pixel && d.pixel.code) {
-          parsed.pixelId = d.pixel.code;
-        } else if (d.context && d.context.pixel && d.context.pixel.code) {
-          parsed.pixelId = d.context.pixel.code;
-        } else if (d._rawBodyString) {
-           const match = d._rawBodyString.match(/"code":"([^"]+)"/);
-           if(match) parsed.pixelId = match[1];
-        }
-
-        // 2. Cứu Event Name từ JSON sâu
-        if (d.event && typeof d.event === 'string') {
-          parsed.eventName = d.event;
-        } else if (d.event_name && typeof d.event_name === 'string') {
-          parsed.eventName = d.event_name;
-        } else if (d.action) {
-          // TikTok nội bộ hay dùng 'action' thay vì 'event' cho auto-events
-          if (d.action === "Pf") parsed.eventName = "Pageview";
-          else parsed.eventName = d.action;
+        // --- Deduplication Logic ---
+        if (!globalThis.lastEventFingerprints) {
+          globalThis.lastEventFingerprints = new Map();
         }
         
-        if (parsed.eventName === "Unknown" && d._rawBodyString) {
-          const match = d._rawBodyString.match(/"event":"([^"]+)"/);
-          if (match) parsed.eventName = match[1];
+        const eventId = parsed.eventData.eid || parsed.eventData.event_id || "";
+        
+        let dedupeKey = eventId;
+        // If no explicit Event ID exists, or it's GA4 (which batches events), we generate a Payload Hash
+        if (!dedupeKey || parsed.platform === "GA4") {
+           const clone = { ...parsed.eventData };
+           
+           // Strip universal cachebusters and timestamps
+           delete clone.z; delete clone._z; delete clone._r; delete clone.rnd; delete clone.ord; // Google
+           delete clone.ts; delete clone.req; delete clone.rqm; // Meta
+           delete clone.timestamp; delete clone._t; delete clone.message_id; // TikTok
+           
+           // Exclude our internal parser properties
+           delete clone._rawBodyString;
+           delete clone._rawParsed;
+           delete clone._rawBatchedString;
+           
+           // Sort keys for a stable hash
+           const sortedKeys = Object.keys(clone).sort();
+           const stableObj = {};
+           for (const k of sortedKeys) {
+             stableObj[k] = clone[k];
+           }
+           dedupeKey = JSON.stringify(stableObj);
         }
-      }
 
-      let tabId = details.tabId < 0 ? "background_worker" : details.tabId;
-      
-      // --- Deduplication Logic ---
-      if (!globalThis.lastEventFingerprints) {
-        globalThis.lastEventFingerprints = new Map();
-      }
-      
-      // Create a fingerprint of the event
-      // Meta often sends multiple requests for the same event (e.g. GET and POST, or fallback pixels)
-      // We deduplicate based on Tab + Platform + Pixel + Event + EventID (if exists)
-      const eventId = parsed.eventData.eid || parsed.eventData.event_id || "";
-      const fingerprint = `${tabId}:${parsed.platform}:${parsed.pixelId}:${parsed.eventName}:${eventId}`;
-      const now = Date.now();
-      
-      const lastSeen = globalThis.lastEventFingerprints.get(fingerprint);
-      if (lastSeen && (now - lastSeen < 2000)) {
-        // console.log(`[Dedupe] Skipping duplicate event: ${fingerprint}`);
-        return;
-      }
-      globalThis.lastEventFingerprints.set(fingerprint, now);
-      // ----------------------------
-
-      const eventRecord = {
-        id: Date.now().toString() + Math.random().toString().slice(2, 6),
-        platform: parsed.platform,
-        pixelId: parsed.pixelId,
-        eventName: parsed.eventName,
-        eventData: parsed.eventData,
-        url: details.url,
-        method: details.method,
-        timestamp: now,
-        status: "success"
-      };
-
-      enqueueStorageUpdate((events, settings) => {
-        if (!events[tabId]) events[tabId] = [];
-        events[tabId].unshift(eventRecord);
-
-        const limit = settings.maxEvents || 500;
-        while (events[tabId].length > limit) {
-          events[tabId].pop();
+        const fingerprint = `${tabId}:${parsed.platform}:${parsed.pixelId}:${parsed.eventName}:${dedupeKey}`;
+        const now = Date.now();
+        
+        const lastSeen = globalThis.lastEventFingerprints.get(fingerprint);
+        if (lastSeen && (now - lastSeen.timestamp < 2000)) {
+          // If methods differ (POST vs GET), it's a browser fallback request. Safely drop it.
+          if (lastSeen.method !== details.method) {
+            return;
+          }
+          // Floodlight intentionally fires multiple GETs via iframes/imgs. Drop them to keep it neat.
+          else if (parsed.platform === "Floodlight") {
+            return;
+          }
+          // Same method (e.g., POST & POST) means the website actually triggered the tag twice!
+          else {
+            parsed.eventData._duplicateWarning = true;
+          }
         }
+        globalThis.lastEventFingerprints.set(fingerprint, { timestamp: now, method: details.method });
+        // ----------------------------
+
+        const eventRecord = {
+          id: Date.now().toString() + Math.random().toString().slice(2, 6),
+          platform: parsed.platform,
+          pixelId: parsed.pixelId,
+          eventName: parsed.eventName,
+          eventData: parsed.eventData,
+          url: details.url,
+          method: details.method,
+          timestamp: now,
+          status: "success"
+        };
+
+        enqueueStorageUpdate((events, settings) => {
+          if (!events[tabId]) events[tabId] = [];
+          events[tabId].unshift(eventRecord);
+
+          const limit = settings.maxEvents || 500;
+          while (events[tabId].length > limit) {
+            events[tabId].pop();
+          }
+        });
       });
 
     } catch (err) {
-      console.error("[Pixel Tracker] Critical error processing request:", err);
+      console.error("[PixelTracker] Universal Parse Error:", err);
     }
   },
   { urls: ["<all_urls>"] },
   ["requestBody"]
 );
+
+// --- Content Script Message Receiver (DataLayer) ---
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'DATALAYER_PUSH') {
+    const tabId = sender.tab ? sender.tab.id : "background_worker";
+    const payload = message.data.payload[0];
+    
+    const eventName = (payload && typeof payload === 'object' && payload.event) ? payload.event : "DataLayer Push";
+    const isDiag = eventName.startsWith('gtm.') || eventName.startsWith('connection__') || eventName.startsWith('optimize.');
+    
+    const eventRecord = {
+      id: Date.now().toString() + Math.random().toString().slice(2, 6),
+      platform: "DataLayer",
+      pixelId: "GTM / DOM",
+      eventName: eventName,
+      eventData: payload || message.data.payload,
+      url: sender.tab ? sender.tab.url : "",
+      method: "DOM",
+      timestamp: message.data.timestamp,
+      status: "success",
+      isDiagnostic: isDiag
+    };
+
+    enqueueStorageUpdate((events, settings) => {
+      if (!events[tabId]) events[tabId] = [];
+      events[tabId].unshift(eventRecord);
+
+      const limit = settings.maxEvents || 500;
+      while (events[tabId].length > limit) {
+        events[tabId].pop();
+      }
+    });
+  } else if (message.type === 'DATALAYER_HISTORY') {
+    const tabId = sender.tab ? sender.tab.id : "background_worker";
+    const history = message.data.payload;
+    if (Array.isArray(history)) {
+       history.forEach((item, index) => {
+          const eventName = (item && typeof item === 'object' && item.event) ? item.event : "DataLayer Init";
+          const isDiag = eventName.startsWith('gtm.') || eventName.startsWith('connection__') || eventName.startsWith('optimize.');
+
+          const eventRecord = {
+            id: Date.now().toString() + index + Math.random().toString().slice(2, 6),
+            platform: "DataLayer",
+            pixelId: "GTM / DOM",
+            eventName: eventName,
+            eventData: item,
+            url: sender.tab ? sender.tab.url : "",
+            method: "DOM",
+            timestamp: message.data.timestamp + index,
+            status: "success",
+            isDiagnostic: isDiag
+          };
+          enqueueStorageUpdate((events, settings) => {
+            if (!events[tabId]) events[tabId] = [];
+            events[tabId].unshift(eventRecord);
+      
+            const limit = settings.maxEvents || 500;
+            while (events[tabId].length > limit) {
+              events[tabId].pop();
+            }
+          });
+       });
+    }
+  }
+});
 
 // Click extension icon to open Dashboard
 chrome.action.onClicked.addListener((tab) => {

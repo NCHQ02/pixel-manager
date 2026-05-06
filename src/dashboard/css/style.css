@@ -13,6 +13,7 @@
   --colors-block-cream: #fbf7f1;
   --colors-block-meta: #e0f2fe;
   --colors-block-tiktok: #fce7f3;
+  --colors-block-google: #e8f0fe;
 
   /* Typography */
   --font-sans: "Inter", system-ui, sans-serif;
@@ -396,6 +397,9 @@ body {
 }
 .bg-tiktok {
   background: var(--colors-block-tiktok);
+}
+.bg-google {
+  background: var(--colors-block-google);
 }
 
 .hero {

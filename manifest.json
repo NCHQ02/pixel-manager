@@ -23,5 +23,18 @@
   },
   "action": {
     "default_icon": "logo.png"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/content/inject.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
