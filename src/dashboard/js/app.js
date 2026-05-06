@@ -1,13 +1,14 @@
 import { store } from "./store.js";
 import { PixelRenderer } from "./renderer.js";
 import { showConfirm } from "./modal.js";
-import { groupEventsBySession, eventsToCsv } from "./utils.js";
+import { groupEventsBySession, eventsToCsv, getPlatformMeta } from "./utils.js";
 
 // --- State & DOM Elements ---
 let currentPlatform = "All"; // 'All', 'Meta', 'TikTok', 'Diagnostics'
 let searchQuery = "";
 let selectedTabId = "all";
 let isSessionView = false;
+let sortConfig = { key: "timestamp", direction: "desc" };
 
 const renderer = new PixelRenderer("events-table-body", "empty-state");
 
@@ -18,6 +19,8 @@ const settingsBtn = document.getElementById("settings-btn");
 const sessionToggle = document.getElementById("session-view-toggle");
 const exportJsonBtn = document.getElementById("export-json-btn");
 const exportCsvBtn = document.getElementById("export-csv-btn");
+const mobileMenuToggle = document.getElementById("mobile-menu-toggle");
+const sidebar = document.querySelector(".sidebar");
 
 const settingsModal = document.getElementById("settings-modal");
 const closeSettingsBtn = document.getElementById("close-settings-btn");
@@ -31,7 +34,6 @@ const tabTikTok = document.getElementById("tab-tiktok");
 const tabGoogle = document.getElementById("tab-google");
 const tabDiagnostics = document.getElementById("tab-diagnostics");
 
-// Collection of filter buttons for easy state management
 const filterBtns = [tabAll, tabMeta, tabTikTok, tabGoogle, tabDiagnostics];
 
 const heroSection = document.getElementById("hero-section");
@@ -39,7 +41,7 @@ const heroEyebrow = document.getElementById("hero-eyebrow");
 const heroTitle = document.getElementById("hero-title");
 const heroSubtitle = document.getElementById("hero-subtitle");
 
-// --- Logic ---
+// --- UI Logic ---
 
 function updateUI() {
   let filteredEvents = [];
@@ -68,8 +70,7 @@ function updateUI() {
     }
   }
 
-  // Apply search BEFORE rendering Tags Summary so the summary card counts
-  // accurately reflect what the user actually sees in the filtered stream.
+  // Apply search
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filteredEvents = filteredEvents.filter(
@@ -79,6 +80,22 @@ function updateUI() {
         e.url.toLowerCase().includes(q),
     );
   }
+
+  // Apply Sorting
+  filteredEvents.sort((a, b) => {
+    let aVal = a[sortConfig.key];
+    let bVal = b[sortConfig.key];
+
+    // Handle nested data if needed, but for now top-level keys
+    if (typeof aVal === "string") {
+      aVal = aVal.toLowerCase();
+      bVal = bVal.toLowerCase();
+    }
+
+    if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+    return 0;
+  });
 
   renderTagsSummary(filteredEvents);
 
@@ -129,7 +146,6 @@ function updateTabSelector(eventsMap) {
   tabIds.forEach((id) => {
     if (id === "background_worker") return;
 
-    // Find the latest URL for this tab to display as label
     const tabEvents = eventsMap[id];
     const latestUrl =
       tabEvents.length > 0 ? new URL(tabEvents[0].url).hostname : `Tab ${id}`;
@@ -140,7 +156,6 @@ function updateTabSelector(eventsMap) {
     tabSelector.appendChild(option);
   });
 
-  // Restore selection if still exists
   if (tabIds.includes(currentVal)) {
     tabSelector.value = currentVal;
   } else {
@@ -154,56 +169,64 @@ function setPlatform(platform, btn) {
   filterBtns.forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
 
-  const contentMap = {
-    All: {
-      eyebrow: "Global Stream",
-      title: "Pixel Tracker",
-      desc: "Comprehensive view of all tracking signals intercepted from social platforms.",
-      bg: "bg-lilac",
-    },
-    Meta: {
-      eyebrow: "Meta Pixel",
-      title: "Facebook Tracking",
-      desc: "Capturing standard events, advanced matching, and custom conversions routed to Meta.",
-      bg: "bg-meta",
-    },
-    TikTok: {
-      eyebrow: "TikTok Pixel",
-      title: "TikTok Analytics",
-      desc: "Monitoring page interactions and custom events dispatched to the TikTok Pixel engine.",
-      bg: "bg-tiktok",
-    },
-    Google: {
-      eyebrow: "Google Suite",
-      title: "Analytics & Ads",
-      desc: "Comprehensive tracking for GA4, Google Ads Conversions, and DV360 Floodlight tags.",
-      bg: "bg-google",
-    },
-    Diagnostics: {
-      eyebrow: "Diagnostics",
-      title: "Internal Pings",
-      desc: "Low-level system signals, microdata pings, and automated diagnostic traces.",
-      bg: "bg-cream",
-    },
-  };
+  const meta = getPlatformMeta(platform);
+  if (meta && heroSection) {
+    heroEyebrow.textContent = meta.label;
+    heroTitle.textContent = meta.heroTitle;
+    heroSubtitle.textContent = meta.description;
 
-  const config = contentMap[platform];
-  if (config && heroSection) {
-    heroEyebrow.textContent = config.eyebrow;
-    heroTitle.textContent = config.title;
-    heroSubtitle.textContent = config.desc;
-
-    heroSection.classList.remove(
-      "bg-lilac",
-      "bg-meta",
-      "bg-tiktok",
-      "bg-google",
-      "bg-cream",
-    );
-    heroSection.classList.add(config.bg);
+    heroSection.className = `hero color-block ${meta.bgClass}`;
   }
 
   updateUI();
+}
+
+// --- Tag Assistant Summary Logic ---
+function renderTagsSummary(events) {
+  const container = document.getElementById("tags-summary-container");
+  const list = document.getElementById("tags-summary-list");
+  if (!container || !list) return;
+
+  list.innerHTML = "";
+
+  if (currentPlatform === "Diagnostics" || events.length === 0) {
+    container.style.display = "none";
+    return;
+  }
+
+  container.style.display = "block";
+
+  const tagsMap = new Map();
+  events.forEach((e) => {
+    if (!tagsMap.has(e.pixelId)) {
+      tagsMap.set(e.pixelId, { platform: e.platform, count: 0 });
+    }
+    tagsMap.get(e.pixelId).count++;
+  });
+
+  tagsMap.forEach((info, pixelId) => {
+    const meta = getPlatformMeta(info.platform);
+    const card = document.createElement("div");
+    card.className = "tag-card";
+    card.innerHTML = `
+      <img src="${meta.icon}" width="24" height="24" />
+      <div>
+        <div class="tag-platform">${info.platform}</div>
+        <div class="caption">${pixelId} <span class="tag-count">(${info.count})</span></div>
+      </div>
+    `;
+    card.addEventListener("click", () => {
+      const tagEvents = events.filter((e) => e.pixelId === pixelId);
+      if (isSessionView) {
+        const windowMs = store.settings?.sessionWindow || 1800000;
+        renderer.render(groupEventsBySession(tagEvents, windowMs), true);
+      } else {
+        renderer.render(tagEvents, false);
+      }
+    });
+
+    list.appendChild(card);
+  });
 }
 
 // --- Event Listeners ---
@@ -229,6 +252,36 @@ tabSelector.addEventListener("change", (e) => {
 sessionToggle.addEventListener("change", (e) => {
   isSessionView = e.target.checked;
   updateUI();
+});
+
+document.querySelectorAll("th.sortable").forEach((th) => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (sortConfig.key === key) {
+      sortConfig.direction = sortConfig.direction === "asc" ? "desc" : "asc";
+    } else {
+      sortConfig.key = key;
+      sortConfig.direction = "asc";
+    }
+
+    // Update UI active state
+    document.querySelectorAll("th.sortable").forEach((el) => {
+      el.classList.remove("active-sort");
+      // Reset icon to default
+      el.querySelector(".sort-icon").innerHTML =
+        `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg>`;
+    });
+
+    th.classList.add("active-sort");
+    const icon = th.querySelector(".sort-icon");
+    if (sortConfig.direction === "asc") {
+      icon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m18 15-6-6-6 6"/></svg>`;
+    } else {
+      icon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>`;
+    }
+
+    updateUI();
+  });
 });
 
 exportJsonBtn.addEventListener("click", () => exportData("json"));
@@ -267,79 +320,21 @@ saveSettingsBtn.addEventListener("click", async () => {
   updateUI();
 });
 
-// --- Tag Assistant Summary Logic ---
-function renderTagsSummary(events) {
-  const container = document.getElementById("tags-summary-container");
-  const list = document.getElementById("tags-summary-list");
-  if (!container || !list) return;
-
-  list.innerHTML = "";
-
-  if (currentPlatform === "Diagnostics" || events.length === 0) {
-    container.style.display = "none";
-    return;
-  }
-
-  container.style.display = "block";
-
-  const tagsMap = new Map();
-  events.forEach((e) => {
-    if (!tagsMap.has(e.pixelId)) {
-      tagsMap.set(e.pixelId, { platform: e.platform, count: 0 });
-    }
-    tagsMap.get(e.pixelId).count++;
-  });
-
-  tagsMap.forEach((info, pixelId) => {
-    let icon = "https://img.icons8.com/color/48/tiktok--v1.png";
-    if (info.platform === "Meta")
-      icon = "https://img.icons8.com/fluency/48/meta.png";
-    else if (info.platform === "GA4")
-      icon =
-        "https://fonts.gstatic.com/s/i/productlogos/google_analytics/v6/192px.svg";
-    else if (info.platform === "Google Ads")
-      icon = "https://img.icons8.com/color/48/google-ads.png";
-    else if (info.platform === "Floodlight")
-      icon =
-        "https://fonts.gstatic.com/s/i/productlogos/marketing_platform/v6/192px.svg";
-    else if (info.platform === "DataLayer")
-      icon = "https://img.icons8.com/doodle/48/google-tag-manager.png";
-
-    const card = document.createElement("div");
-    card.style.cssText = `
-      display: flex; align-items: center; gap: 12px; padding: 12px 16px; 
-      background: white; border: 1px solid var(--colors-border); 
-      border-radius: 12px; cursor: pointer; transition: all 0.2s;
-    `;
-    card.innerHTML = `
-      <img src="${icon}" width="24" height="24" />
-      <div>
-        <div style="font-weight: 600; font-size: 14px;">${info.platform}</div>
-        <div class="caption">${pixelId} <span style="opacity:0.5; margin-left:4px;">(${info.count})</span></div>
-      </div>
-    `;
-    card.addEventListener(
-      "mouseover",
-      () => (card.style.borderColor = "var(--colors-ink)"),
-    );
-    card.addEventListener(
-      "mouseout",
-      () => (card.style.borderColor = "var(--colors-border)"),
-    );
-    card.addEventListener("click", () => {
-      // Tag Assistant feature: Click a tag to filter the stream below to ONLY this tag
-      const tagEvents = events.filter((e) => e.pixelId === pixelId);
-      if (isSessionView) {
-        const windowMs = store.settings?.sessionWindow || 1800000;
-        renderer.render(groupEventsBySession(tagEvents, windowMs), true);
-      } else {
-        renderer.render(tagEvents, false);
-      }
-    });
-
-    list.appendChild(card);
+// Mobile Toggle Logic
+if (mobileMenuToggle) {
+  mobileMenuToggle.addEventListener("click", () => {
+    sidebar.classList.toggle("open");
   });
 }
+
+// Close sidebar when clicking outside on mobile
+document.addEventListener("click", (e) => {
+  if (window.innerWidth <= 1200 && sidebar.classList.contains("open")) {
+    if (!sidebar.contains(e.target) && !mobileMenuToggle.contains(e.target)) {
+      sidebar.classList.remove("open");
+    }
+  }
+});
 
 // --- Initialization ---
 

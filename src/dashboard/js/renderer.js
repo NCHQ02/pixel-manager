@@ -4,6 +4,7 @@ import {
   extractRichDetails,
   auditEvent,
   detectAdvancedMatching,
+  getPlatformMeta,
 } from "./utils.js";
 
 const copySvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
@@ -91,21 +92,7 @@ export class PixelRenderer {
     const tr = document.createElement("tr");
     tr.className = "event-row";
 
-    let platformIconUrl = "https://img.icons8.com/color/48/tiktok--v1.png";
-    if (event.platform === "Meta")
-      platformIconUrl = "https://img.icons8.com/fluency/48/meta.png";
-    else if (event.platform === "GA4")
-      platformIconUrl =
-        "https://fonts.gstatic.com/s/i/productlogos/google_analytics/v6/192px.svg";
-    else if (event.platform === "Google Ads")
-      platformIconUrl = "https://img.icons8.com/color/48/google-ads.png";
-    else if (event.platform === "Floodlight")
-      platformIconUrl =
-        "https://fonts.gstatic.com/s/i/productlogos/marketing_platform/v6/192px.svg";
-    else if (event.platform === "DataLayer")
-      platformIconUrl =
-        "https://img.icons8.com/doodle/48/google-tag-manager.png";
-
+    const meta = getPlatformMeta(event.platform);
     const warnings = auditEvent(event);
     const hasWarning = warnings.length > 0;
     const amKeys = detectAdvancedMatching(event.eventData, event.platform);
@@ -116,7 +103,7 @@ export class PixelRenderer {
       <td class="method-col"><span class="method-badge">${event.method || "GET"}</span></td>
       <td class="platform-col">
         <div class="platform-label">
-          <img src="${platformIconUrl}" width="16" height="16" aria-hidden="true" />
+          <img src="${meta.icon}" width="16" height="16" aria-hidden="true" />
           <span>${event.platform}</span>
         </div>
       </td>
@@ -144,15 +131,14 @@ export class PixelRenderer {
     const detailsContent = this.createDetailsContent(event, warnings);
     detailsTr.appendChild(detailsContent);
 
-    // Restore expanded state before this re-render — prevents GA4/TikTok background
-    // pings from collapsing detail rows the user intentionally opened.
+    // Restore expanded state before this re-render
     if (this.expandedIds.has(event.id)) {
       detailsTr.style.display = "table-row";
       tr.classList.add("expanded");
       tr.querySelector(".chevron").innerHTML = `<path d="m18 15-6-6-6 6"/>`;
     }
 
-    // Toggle logic — sync to expandedIds so state persists across re-renders
+    // Toggle logic
     tr.addEventListener("click", () => {
       const isExpanded = detailsTr.style.display === "table-row";
       if (isExpanded) {
@@ -170,6 +156,7 @@ export class PixelRenderer {
 
     return { tr, detailsTr };
   }
+
 
   /**
    * Creates the expanded details cell

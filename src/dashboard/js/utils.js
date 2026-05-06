@@ -1,6 +1,102 @@
 /**
+ * Platform Metadata for consistent UI rendering
+ */
+export const PLATFORMS = {
+  Meta: {
+    label: "Meta Pixel",
+    icon: "https://img.icons8.com/fluency/48/meta.png",
+    color: "#0668E1",
+    bgClass: "bg-meta",
+    description:
+      "Deep-packet inspection of standard events, Advanced Matching (PII), and custom conversions routed to Meta's tracking infrastructure.",
+    heroTitle: "Meta Pixel Intelligence",
+  },
+  TikTok: {
+    label: "TikTok Pixel",
+    icon: "https://img.icons8.com/color/48/tiktok--v1.png",
+    color: "#000000",
+    bgClass: "bg-tiktok",
+    description:
+      "Real-time monitoring of browser-side interactions, session signals, and performance pings dispatched to the TikTok Ads engine.",
+    heroTitle: "TikTok Event Stream",
+  },
+  GA4: {
+    label: "GA4",
+    icon: "https://fonts.gstatic.com/s/i/productlogos/google_analytics/v6/192px.svg",
+    color: "#E37400",
+    bgClass: "bg-google",
+    description:
+      "High-fidelity interception of GA4 Measurement Protocol pings, Google Ads conversions, and Floodlight activity.",
+    heroTitle: "Google Suite Analysis",
+  },
+  "Google Ads": {
+    label: "Google Ads",
+    icon: "https://img.icons8.com/color/48/google-ads.png",
+    color: "#4285F4",
+    bgClass: "bg-google",
+    description:
+      "Monitoring conversion signals, GCLID attribution, and dynamic remarketing events for Google Ads.",
+    heroTitle: "Google Ads Tracking",
+  },
+  Floodlight: {
+    label: "Floodlight",
+    icon: "https://fonts.gstatic.com/s/i/productlogos/marketing_platform/v6/192px.svg",
+    color: "#00A1E0",
+    bgClass: "bg-google",
+    description:
+      "Interception of Campaign Manager 360 Floodlight tags and Search Ads 360 conversion signals.",
+    heroTitle: "Floodlight Monitor",
+  },
+  DataLayer: {
+    label: "DataLayer",
+    icon: "https://img.icons8.com/doodle/48/google-tag-manager.png",
+    color: "#2485FF",
+    bgClass: "bg-google",
+    description:
+      "Real-time monitoring of the GTM DataLayer object, tracking state changes and variable pushes.",
+    heroTitle: "DataLayer Inspection",
+  },
+  Google: {
+    label: "Google Suite",
+    icon: "https://img.icons8.com/color/48/google-logo.png",
+    color: "#4285F4",
+    bgClass: "bg-google",
+    description:
+      "Unified monitoring of GA4 Measurement Protocol, Google Ads Conversions, and DV360 Floodlight activity across all properties.",
+    heroTitle: "Google Ecosystem",
+  },
+  Diagnostics: {
+    label: "Diagnostics",
+    icon: "https://img.icons8.com/color/48/activity.png",
+    color: "#6B7280",
+    bgClass: "bg-cream",
+    description:
+      "Subsurface system signals, automated microdata pings, and low-level diagnostic traces used for platform health.",
+    heroTitle: "System Diagnostics",
+  },
+  All: {
+    label: "Global Stream",
+    icon: null,
+    color: "#6366F1",
+    bgClass: "bg-lilac",
+    description:
+      "A unified, unstructured view of all tracking signals intercepted from social and search platforms across this session.",
+    heroTitle: "Universal Event Canvas",
+  },
+};
+
+/**
+ * Gets metadata for a platform
+ * @param {string} platform
+ * @returns {typeof PLATFORMS.Meta}
+ */
+export function getPlatformMeta(platform) {
+  return PLATFORMS[platform] || PLATFORMS.Diagnostics;
+}
+
+/**
  * Formats a timestamp into HH:mm:ss.SSS
- * @param {number} timestamp 
+ * @param {number} timestamp
  * @returns {string}
  */
 export function formatTime(timestamp) {
@@ -10,7 +106,7 @@ export function formatTime(timestamp) {
 
 /**
  * Escapes HTML characters to prevent XSS
- * @param {string} unsafe 
+ * @param {string} unsafe
  * @returns {string}
  */
 export function escapeHtml(unsafe) {
@@ -24,8 +120,8 @@ export function escapeHtml(unsafe) {
 
 /**
  * Extracts specific rich details from raw event data
- * @param {object} eventData 
- * @param {string} platform 
+ * @param {object} eventData
+ * @param {string} platform
  * @returns {object}
  */
 export function extractRichDetails(eventData, platform) {
@@ -76,19 +172,21 @@ export function extractRichDetails(eventData, platform) {
       if (autoProps.action_event)
         details["Auto Action"] = autoProps.action_event;
     }
-  } else if (["GA4", "Google Ads", "Floodlight"].includes(platform)) {
+  } else if (
+    ["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(platform)
+  ) {
     if (platform === "GA4") {
       if (eventData.tid) details["Measurement ID"] = eventData.tid;
       if (eventData.cid) details["Client ID"] = eventData.cid;
       if (eventData.sid) details["Session ID"] = eventData.sid;
       if (eventData.seg) details["Session Engagement"] = eventData.seg;
-      
+
       // Consent Mode decoding
       if (eventData.gcs) {
         const gcs = eventData.gcs;
         if (gcs.length >= 4) {
-          const ad = gcs[2] === '1' ? 'Granted' : 'Denied';
-          const an = gcs[3] === '1' ? 'Granted' : 'Denied';
+          const ad = gcs[2] === "1" ? "Granted" : "Denied";
+          const an = gcs[3] === "1" ? "Granted" : "Denied";
           details["Consent (gcs)"] = `Ads: ${ad} | Analytics: ${an}`;
         } else {
           details["Consent (gcs)"] = gcs;
@@ -97,10 +195,13 @@ export function extractRichDetails(eventData, platform) {
       if (eventData.gcd) details["Consent (gcd)"] = eventData.gcd;
 
       // Extract Event Parameters (ep.) and User Properties (up.)
-      Object.keys(eventData).forEach(k => {
-        if (k.startsWith("ep.")) details[`Param: ${k.replace("ep.", "")}`] = eventData[k];
-        else if (k.startsWith("epn.")) details[`Param (Num): ${k.replace("epn.", "")}`] = eventData[k];
-        else if (k.startsWith("up.")) details[`User Prop: ${k.replace("up.", "")}`] = eventData[k];
+      Object.keys(eventData).forEach((k) => {
+        if (k.startsWith("ep."))
+          details[`Param: ${k.replace("ep.", "")}`] = eventData[k];
+        else if (k.startsWith("epn."))
+          details[`Param (Num): ${k.replace("epn.", "")}`] = eventData[k];
+        else if (k.startsWith("up."))
+          details[`User Prop: ${k.replace("up.", "")}`] = eventData[k];
       });
 
       // E-commerce extraction
@@ -119,7 +220,8 @@ export function extractRichDetails(eventData, platform) {
         details["E-commerce Items"] = JSON.stringify(items, null, 2);
       }
     } else if (platform === "Google Ads") {
-      if (eventData.gclid || eventData.gclaw) details["GCLID"] = eventData.gclid || eventData.gclaw;
+      if (eventData.gclid || eventData.gclaw)
+        details["GCLID"] = eventData.gclid || eventData.gclaw;
       if (eventData.gbraid) details["GBRAID"] = eventData.gbraid;
       if (eventData.wbraid) details["WBRAID"] = eventData.wbraid;
       if (eventData.val) details["Conversion Value"] = eventData.val;
@@ -129,8 +231,17 @@ export function extractRichDetails(eventData, platform) {
       if (eventData.type) details["Group Tag"] = eventData.type;
       if (eventData.cat) details["Activity Tag"] = eventData.cat;
       if (eventData.ord) details["Order ID"] = eventData.ord;
-      Object.keys(eventData).forEach(k => {
+      Object.keys(eventData).forEach((k) => {
         if (k.match(/^u\d+$/)) details[`Custom Var (${k})`] = eventData[k];
+      });
+    } else if (platform === "DataLayer") {
+      Object.keys(eventData).forEach((k) => {
+        if (k !== "event" && k !== "gtm.uniqueEventId") {
+          details[k] =
+            typeof eventData[k] === "object"
+              ? JSON.stringify(eventData[k], null, 2)
+              : eventData[k];
+        }
       });
     }
   } else if (platform === "Meta") {
@@ -147,7 +258,7 @@ export function extractRichDetails(eventData, platform) {
 
     if (eventData.ud) {
       const keys = Object.keys(eventData.ud).filter(
-        (k) => eventData.ud[k] !== ""
+        (k) => eventData.ud[k] !== "",
       );
       if (keys.length > 0) details["User Data Keys"] = keys.join(", ");
     }
@@ -158,12 +269,6 @@ export function extractRichDetails(eventData, platform) {
         }
       });
     }
-  } else if (platform === "DataLayer") {
-    Object.keys(eventData).forEach(k => {
-      if (k !== 'event' && k !== 'gtm.uniqueEventId') {
-        details[k] = typeof eventData[k] === 'object' ? JSON.stringify(eventData[k], null, 2) : eventData[k];
-      }
-    });
   }
 
   return details;
@@ -171,8 +276,8 @@ export function extractRichDetails(eventData, platform) {
 
 /**
  * Detects if an event contains Advanced Matching (User Data)
- * @param {object} eventData 
- * @param {string} platform 
+ * @param {object} eventData
+ * @param {string} platform
  * @returns {Array} List of found user data keys
  */
 export function detectAdvancedMatching(eventData, platform) {
@@ -183,7 +288,7 @@ export function detectAdvancedMatching(eventData, platform) {
     if (d.fbp) amKeys.push("fbp");
     if (d.fbc) amKeys.push("fbc");
     if (d.ud) {
-      Object.keys(d.ud).forEach(k => {
+      Object.keys(d.ud).forEach((k) => {
         if (d.ud[k]) amKeys.push(`ud:${k}`);
       });
     }
@@ -200,8 +305,8 @@ export function detectAdvancedMatching(eventData, platform) {
     if (d.em) amKeys.push("email");
     if (d.ph) amKeys.push("phone");
     if (d.tv) {
-      if (d.tv.includes('~em')) amKeys.push("email (tv)");
-      if (d.tv.includes('~ph')) amKeys.push("phone (tv)");
+      if (d.tv.includes("~em")) amKeys.push("email (tv)");
+      if (d.tv.includes("~ph")) amKeys.push("phone (tv)");
     }
   }
 
@@ -210,7 +315,7 @@ export function detectAdvancedMatching(eventData, platform) {
 
 /**
  * Advanced Audit & Validation for Pixel events
- * @param {object} event 
+ * @param {object} event
  * @returns {Array} List of warning messages
  */
 export function auditEvent(event) {
@@ -218,7 +323,9 @@ export function auditEvent(event) {
   const { platform, eventName, eventData } = event;
 
   if (eventData._duplicateWarning) {
-    warnings.push("Duplicate Firing Detected: This event was fired multiple times simultaneously. Check for duplicate pixel installations or double tag triggers.");
+    warnings.push(
+      "Duplicate Firing Detected: This event was fired multiple times simultaneously. Check for duplicate pixel installations or double tag triggers.",
+    );
   }
 
   const isSha256 = (str) => /^[a-f0-9]{64}$/i.test(String(str).trim());
@@ -232,20 +339,24 @@ export function auditEvent(event) {
       } else if (isNaN(parseFloat(eventData.cd.value))) {
         warnings.push("'value' parameter must be a valid number.");
       }
-      
+
       if (!eventData.cd || !eventData.cd.currency) {
         warnings.push("Missing 'currency' parameter for Purchase event.");
       } else if (!isCurrency(eventData.cd.currency)) {
-        warnings.push("'currency' parameter should be a valid 3-letter ISO code.");
+        warnings.push(
+          "'currency' parameter should be a valid 3-letter ISO code.",
+        );
       }
     }
 
     // PII / Advanced Matching validation
     if (eventData.ud) {
-      Object.keys(eventData.ud).forEach(k => {
+      Object.keys(eventData.ud).forEach((k) => {
         const val = eventData.ud[k];
-        if (val && !isSha256(val) && (k === 'em' || k === 'ph')) {
-          warnings.push(`User Data '${k}' is unhashed plaintext. It must be SHA-256 hashed for privacy compliance.`);
+        if (val && !isSha256(val) && (k === "em" || k === "ph")) {
+          warnings.push(
+            `User Data '${k}' is unhashed plaintext. It must be SHA-256 hashed for privacy compliance.`,
+          );
         }
       });
     }
@@ -259,45 +370,54 @@ export function auditEvent(event) {
       }
 
       if (eventData.properties && eventData.properties.currency) {
-         if (!isCurrency(eventData.properties.currency)) {
-           warnings.push("'currency' parameter should be a valid 3-letter ISO code.");
-         }
+        if (!isCurrency(eventData.properties.currency)) {
+          warnings.push(
+            "'currency' parameter should be a valid 3-letter ISO code.",
+          );
+        }
       } else {
-         warnings.push("Missing 'currency' parameter for CompletePayment.");
+        warnings.push("Missing 'currency' parameter for CompletePayment.");
       }
     }
 
     // PII validation
     const checkTikTokPII = (val, fieldName) => {
       if (val && !isSha256(val)) {
-        warnings.push(`User Data '${fieldName}' is unhashed plaintext. It must be SHA-256 hashed.`);
+        warnings.push(
+          `User Data '${fieldName}' is unhashed plaintext. It must be SHA-256 hashed.`,
+        );
       }
     };
 
     if (eventData.em) checkTikTokPII(eventData.em, "em");
     if (eventData.ph) checkTikTokPII(eventData.ph, "ph");
-    
+
     if (eventData.context && eventData.context.user) {
-      if (eventData.context.user.email) checkTikTokPII(eventData.context.user.email, "context.user.email");
-      if (eventData.context.user.phone_number) checkTikTokPII(eventData.context.user.phone_number, "context.user.phone_number");
+      if (eventData.context.user.email)
+        checkTikTokPII(eventData.context.user.email, "context.user.email");
+      if (eventData.context.user.phone_number)
+        checkTikTokPII(
+          eventData.context.user.phone_number,
+          "context.user.phone_number",
+        );
     }
   }
-  
+
   return warnings;
 }
 
 /**
  * Groups events by Session (Tab ID + Inactivity window)
- * @param {Array} events 
- * @param {number} windowMs 
+ * @param {Array} events
+ * @param {number} windowMs
  * @returns {Array} Array of sessions
  */
 export function groupEventsBySession(events, windowMs = 1800000) {
   if (!events || events.length === 0) return [];
-  
+
   // 1. Group events by tabId first to ensure we don't mix tabs in a single session
   const eventsByTab = {};
-  events.forEach(e => {
+  events.forEach((e) => {
     const tid = e.tabId || "unknown";
     if (!eventsByTab[tid]) eventsByTab[tid] = [];
     eventsByTab[tid].push(e);
@@ -306,24 +426,25 @@ export function groupEventsBySession(events, windowMs = 1800000) {
   const allSessions = [];
 
   // 2. For each tab, group events by inactivity window (Standard 30 min)
-  Object.values(eventsByTab).forEach(tabEvents => {
+  Object.values(eventsByTab).forEach((tabEvents) => {
     const sorted = [...tabEvents].sort((a, b) => a.timestamp - b.timestamp);
-    
+    if (sorted.length === 0) return;
+
     let currentSession = {
       id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       url: sorted[0].url,
       hostname: new URL(sorted[0].url).hostname,
       startTime: sorted[0].timestamp,
       endTime: sorted[0].timestamp,
-      events: [sorted[0]]
+      events: [sorted[0]],
     };
 
     for (let i = 1; i < sorted.length; i++) {
       const event = sorted[i];
       const lastEvent = sorted[i - 1];
-      
+
       // If gap is less than windowMs, it's the same session
-      if ((event.timestamp - lastEvent.timestamp) < windowMs) {
+      if (event.timestamp - lastEvent.timestamp < windowMs) {
         currentSession.events.push(event);
         currentSession.endTime = event.timestamp;
       } else {
@@ -334,31 +455,41 @@ export function groupEventsBySession(events, windowMs = 1800000) {
           hostname: new URL(event.url).hostname,
           startTime: event.timestamp,
           endTime: event.timestamp,
-          events: [event]
+          events: [event],
         };
       }
     }
     allSessions.push(currentSession);
   });
-  
+
   return allSessions.sort((a, b) => b.startTime - a.startTime);
 }
 
 /**
  * Converts events to CSV string
- * @param {Array} events 
+ * @param {Array} events
  */
 export function eventsToCsv(events) {
-  const headers = ["Time", "Platform", "Event Name", "Pixel ID", "Method", "URL", "Raw Data"];
-  const rows = events.map(e => [
+  const headers = [
+    "Time",
+    "Platform",
+    "Event Name",
+    "Pixel ID",
+    "Method",
+    "URL",
+    "Raw Data",
+  ];
+  const rows = events.map((e) => [
     new Date(e.timestamp).toISOString(),
     e.platform,
     e.eventName,
     e.pixelId,
     e.method || "GET",
     e.url,
-    JSON.stringify(e.eventData).replace(/"/g, '""')
+    JSON.stringify(e.eventData).replace(/"/g, '""'),
   ]);
-  
-  return [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+
+  return [headers, ...rows]
+    .map((row) => row.map((cell) => `"${cell}"`).join(","))
+    .join("\n");
 }
