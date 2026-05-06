@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "OmniSignal - Multi-Platform Pixel Tracker",
+  "name": "OmniSignal - Multi-Platform Data Tracker",
   "version": "2.1.0",
   "description": "Universal event interception and analysis for Meta, TikTok, and Google Suite.",
   "icons": {
@@ -8,15 +8,8 @@
     "48": "logo.png",
     "128": "logo.png"
   },
-  "permissions": [
-    "webRequest",
-    "storage",
-    "tabs",
-    "unlimitedStorage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "permissions": ["webRequest", "storage", "tabs", "unlimitedStorage"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background/index.js",
     "type": "module"
