@@ -557,6 +557,7 @@ export function buildReportModel({
   expectedEvents = DEFAULT_EXPECTED_EVENTS,
   expectedPixels = {},
   filters = null,
+  options = {},
 } = {}) {
   const safeEvents = Array.isArray(events) ? events : [];
   const summary = buildAuditSummary(safeEvents);
@@ -578,6 +579,7 @@ export function buildReportModel({
     },
     generatedAt,
     filters,
+    options,
     events: safeEvents,
     expectedEvents,
     expectedPixels,
@@ -617,6 +619,8 @@ export function buildProfessionalReportHtml(reportModel) {
   ).length;
   const redactions = model.summary.redactions;
   const healthClass = `tone-${escapeHtml(model.health.tone)}`;
+  const includePayloadAppendix =
+    model.options?.includePayloadAppendix !== false;
   const actionLine =
     model.issues.length > 0
       ? `${model.issues.length} issue(s) need review before campaign spend starts.`
@@ -1057,7 +1061,9 @@ export function buildProfessionalReportHtml(reportModel) {
         </table>
       </section>
 
-      <section class="section appendix">
+      ${
+        includePayloadAppendix
+          ? `<section class="section appendix">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Raw Payload Appendix</p>
@@ -1065,7 +1071,9 @@ export function buildProfessionalReportHtml(reportModel) {
           </div>
         </div>
         ${model.events.map(renderPayloadBlock).join("") || `<p>No raw payloads captured.</p>`}
-      </section>
+      </section>`
+          : ""
+      }
 
       <footer class="eyebrow">
         Generated locally by OmniSignal. No audit data was sent to a server.

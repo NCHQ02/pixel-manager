@@ -1,6 +1,12 @@
+import { DEFAULT_SETTINGS, normalizeSettings } from "../shared/settings.js";
+
 /**
  * @typedef {Object} Settings
  * @property {number} maxEvents
+ * @property {number} duplicateWindow
+ * @property {boolean} captureNetwork
+ * @property {boolean} captureDataLayer
+ * @property {boolean} captureDiagnostics
  */
 
 /**
@@ -36,7 +42,7 @@ export function enqueueStorageUpdate(updateFn) {
       return new Promise((resolve) => {
         chrome.storage.local.get(["trackedEvents", "settings"], (res) => {
           const events = res.trackedEvents || {};
-          const settings = res.settings || { maxEvents: 500 };
+          const settings = normalizeSettings(res.settings);
           const shouldSave = updateFn(events, settings);
           if (shouldSave !== false) {
             chrome.storage.local.set({ trackedEvents: events }, () =>
@@ -201,7 +207,15 @@ export function sanitizeCapturedData(data) {
  * @param {string} method 
  * @returns {{ isDuplicate: boolean, isWarning: boolean }}
  */
-export function checkDeduplication(tabId, platform, pixelId, eventName, eventData, method) {
+export function checkDeduplication(
+  tabId,
+  platform,
+  pixelId,
+  eventName,
+  eventData,
+  method,
+  windowMs = DEFAULT_SETTINGS.duplicateWindow,
+) {
   const eventId = eventData.eid || eventData.event_id || "";
   let dedupeKey = eventId;
 
@@ -219,7 +233,7 @@ export function checkDeduplication(tabId, platform, pixelId, eventName, eventDat
   let isDuplicate = false;
   let isWarning = false;
 
-  if (lastBroad && (now - lastBroad.timestamp < 1500)) {
+  if (lastBroad && now - lastBroad.timestamp < windowMs) {
     // 1. Drop browser fallback (POST vs GET)
     if (lastBroad.method !== method) {
       isDuplicate = true;
@@ -227,7 +241,7 @@ export function checkDeduplication(tabId, platform, pixelId, eventName, eventDat
     
     // 2. Drop identical double-fires (Same method, Same payload)
     // Professional trackers should merge these to avoid UI noise.
-    if (lastExact && (now - lastExact.timestamp < 1500)) {
+    if (lastExact && now - lastExact.timestamp < windowMs) {
        isDuplicate = true;
     }
 

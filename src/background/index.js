@@ -8,6 +8,7 @@ import {
   sanitizeCapturedData,
   sanitizeCapturedUrl,
 } from "./utils.js";
+import { DEFAULT_SETTINGS, normalizeSettings } from "../shared/settings.js";
 
 const TRACKING_URL_PATTERNS = [
   "*://*.facebook.com/*",
@@ -25,6 +26,17 @@ const auditedTabIds = new Set();
 const auditTabContexts = {};
 let activeAuditRunId = null;
 let lastTargetTabId = null;
+let runtimeSettings = { ...DEFAULT_SETTINGS };
+
+chrome.storage.local.get(["settings"], (res) => {
+  runtimeSettings = normalizeSettings(res.settings);
+});
+
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === "local" && changes.settings) {
+    runtimeSettings = normalizeSettings(changes.settings.newValue);
+  }
+});
 
 const getSessionState = () =>
   new Promise((resolve) => {
@@ -239,6 +251,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     message.type === "DATALAYER_PUSH" ||
     message.type === "DATALAYER_HISTORY"
   ) {
+    if (!runtimeSettings.captureDataLayer) return;
     if (sender.tab?.id >= 0 && !auditedTabIds.has(sender.tab.id)) return;
 
     const tabId = sender.tab ? String(sender.tab.id) : "background_worker";
@@ -251,7 +264,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     payloadArray.forEach((item, index) => {
       if (!item) return;
-      const sanitizedItem = sanitizeCapturedData(item);
 
       let eventName = "DataLayer Init";
       let isDiag = false;
@@ -278,6 +290,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           eventName.startsWith("optimize.");
       }
 
+      if (isDiag && !runtimeSettings.captureDiagnostics) return;
+
+      const sanitizedItem = sanitizeCapturedData(item);
       const { isDuplicate, isWarning } = checkDeduplication(
         tabId,
         "DataLayer",
@@ -285,6 +300,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         eventName,
         sanitizedItem,
         "DOM",
+        runtimeSettings.duplicateWindow,
       );
 
       if (isDuplicate) {
@@ -329,7 +345,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       enqueueStorageUpdate((events, settings) => {
         if (!events[tabId]) events[tabId] = [];
         upsertEvent(events[tabId], eventRecord);
-        const limit = settings.maxEvents || 500;
+        const limit = settings.maxEvents || DEFAULT_SETTINGS.maxEvents;
         if (events[tabId].length > limit) {
           events[tabId] = events[tabId].slice(0, limit);
         }
@@ -354,6 +370,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     try {
+      if (!runtimeSettings.captureNetwork) return;
       if (details.tabId < 0 || !auditedTabIds.has(details.tabId)) return;
 
       const url = new URL(details.url);
@@ -370,6 +387,8 @@ chrome.webRequest.onBeforeRequest.addListener(
       const tabId = String(details.tabId);
 
       resultsArray.forEach((parsed) => {
+        if (parsed.isDiagnostic && !runtimeSettings.captureDiagnostics) return;
+
         const eventData = sanitizeCapturedData(parsed.eventData);
         const { isDuplicate, isWarning } = checkDeduplication(
           tabId,
@@ -378,6 +397,7 @@ chrome.webRequest.onBeforeRequest.addListener(
           parsed.eventName,
           eventData,
           details.method,
+          runtimeSettings.duplicateWindow,
         );
 
         if (isDuplicate) {
@@ -427,7 +447,7 @@ chrome.webRequest.onBeforeRequest.addListener(
           if (!events[tabId]) events[tabId] = [];
           upsertEvent(events[tabId], eventRecord);
 
-          const limit = settings.maxEvents || 500;
+          const limit = settings.maxEvents || DEFAULT_SETTINGS.maxEvents;
           if (events[tabId].length > limit) {
             events[tabId] = events[tabId].slice(0, limit);
           }

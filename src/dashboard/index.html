@@ -442,9 +442,14 @@
     </div>
 
     <div id="settings-modal" class="modal-overlay" style="display: none">
-      <div class="modal-dialog color-block bg-cream">
+      <div
+        class="modal-dialog settings-dialog color-block bg-cream"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
         <div class="modal-title-row">
-          <h3 class="headline">Settings</h3>
+          <h3 id="settings-title" class="headline">Settings</h3>
           <button
             id="close-settings-btn"
             class="icon-button"
@@ -465,27 +470,159 @@
           </button>
         </div>
 
-        <label class="expectation-field body-sm">
-          Max Events per Tab
-          <select id="setting-max-events" class="select-input">
-            <option value="50">50 Events</option>
-            <option value="200">200 Events</option>
-            <option value="500">500 Events</option>
-            <option value="1000">1000 Events</option>
-          </select>
-        </label>
+        <form id="settings-form" class="settings-form">
+          <section class="settings-section">
+            <p class="eyebrow">Capture Engine</p>
+            <div class="settings-grid">
+              <label class="expectation-field body-sm">
+                Max Events per Tab
+                <select id="setting-max-events" class="select-input">
+                  <option value="50">50 Events</option>
+                  <option value="200">200 Events</option>
+                  <option value="500">500 Events</option>
+                  <option value="1000">1000 Events</option>
+                  <option value="2500">2500 Events</option>
+                  <option value="5000">5000 Events</option>
+                </select>
+              </label>
 
-        <label class="expectation-field body-sm">
-          Session Grouping Window
-          <select id="setting-session-window" class="select-input">
-            <option value="300000">5 Minutes</option>
-            <option value="900000">15 Minutes</option>
-            <option value="1800000">30 Minutes</option>
-            <option value="3600000">1 Hour</option>
-          </select>
-        </label>
+              <label class="expectation-field body-sm">
+                Session Grouping Window
+                <select id="setting-session-window" class="select-input">
+                  <option value="300000">5 Minutes</option>
+                  <option value="900000">15 Minutes</option>
+                  <option value="1800000">30 Minutes</option>
+                  <option value="3600000">1 Hour</option>
+                  <option value="7200000">2 Hours</option>
+                </select>
+              </label>
 
-        <div class="modal-actions split">
+              <label class="expectation-field body-sm">
+                Duplicate Merge Window
+                <select id="setting-duplicate-window" class="select-input">
+                  <option value="750">750 ms</option>
+                  <option value="1500">1.5 Seconds</option>
+                  <option value="3000">3 Seconds</option>
+                  <option value="5000">5 Seconds</option>
+                  <option value="10000">10 Seconds</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="settings-toggle-grid">
+              <label class="switch-row body-sm">
+                <input id="setting-capture-network" type="checkbox" />
+                <span>Network pixels</span>
+              </label>
+              <label class="switch-row body-sm">
+                <input id="setting-capture-datalayer" type="checkbox" />
+                <span>DataLayer pushes</span>
+              </label>
+              <label class="switch-row body-sm">
+                <input id="setting-capture-diagnostics" type="checkbox" />
+                <span>Diagnostic events</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <p class="eyebrow">Workspace Defaults</p>
+            <div class="settings-grid">
+              <label class="expectation-field body-sm">
+                Opening View
+                <select id="setting-default-view" class="select-input">
+                  <option value="overview">Overview</option>
+                  <option value="live">Live</option>
+                  <option value="checklist">Checklist</option>
+                  <option value="issues">Issues</option>
+                  <option value="report">Report</option>
+                </select>
+              </label>
+
+              <label class="expectation-field body-sm">
+                Default Platform
+                <select id="setting-default-platform" class="select-input">
+                  <option value="All">All Platforms</option>
+                  <option value="Meta">Meta</option>
+                  <option value="TikTok">TikTok</option>
+                  <option value="Google">Google Suite</option>
+                  <option value="Diagnostics">Diagnostics</option>
+                </select>
+              </label>
+
+              <label class="expectation-field body-sm">
+                Default Status
+                <select id="setting-default-status" class="select-input">
+                  <option value="All">All Status</option>
+                  <option value="valid">Valid</option>
+                  <option value="warning">Warning</option>
+                  <option value="missing">Missing Params</option>
+                  <option value="duplicate">Duplicate</option>
+                  <option value="diagnostic">Diagnostic</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="settings-toggle-grid">
+              <label class="switch-row body-sm">
+                <input id="setting-default-session-view" type="checkbox" />
+                <span>Session view default</span>
+              </label>
+              <label class="switch-row body-sm">
+                <input id="setting-restore-workspace" type="checkbox" />
+                <span>Restore workspace</span>
+              </label>
+              <label class="switch-row body-sm">
+                <input id="setting-autosave-drafts" type="checkbox" />
+                <span>Autosave drafts</span>
+              </label>
+              <label class="switch-row body-sm">
+                <input id="setting-compact-events" type="checkbox" />
+                <span>Compact event rows</span>
+              </label>
+              <label class="switch-row body-sm">
+                <input id="setting-auto-open-payload" type="checkbox" />
+                <span>Open raw payload</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <p class="eyebrow">Report & Export</p>
+            <div class="settings-grid">
+              <label class="expectation-field body-sm">
+                Raw Export Scope
+                <select id="setting-raw-export-scope" class="select-input">
+                  <option value="all">All Stored Events</option>
+                  <option value="visible">Visible Events</option>
+                  <option value="selected-tab">Selected Tab</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="settings-toggle-grid">
+              <label class="switch-row body-sm">
+                <input id="setting-report-diagnostics" type="checkbox" />
+                <span>Report diagnostics</span>
+              </label>
+              <label class="switch-row body-sm">
+                <input id="setting-report-payloads" type="checkbox" />
+                <span>Payload appendix</span>
+              </label>
+            </div>
+          </section>
+        </form>
+
+        <div class="settings-utility-row">
+          <button id="trim-events-btn" class="button-pill button-outline">
+            Trim Stored Events
+          </button>
+          <button id="reset-settings-btn" class="button-pill button-outline">
+            Reset Preferences
+          </button>
+        </div>
+
+        <div class="modal-actions split settings-actions">
           <button id="clear-draft-btn" class="button-pill button-outline">
             Clear Drafts
           </button>

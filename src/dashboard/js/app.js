@@ -1,6 +1,7 @@
 import { store } from "./store.js";
 import { PixelRenderer } from "./renderer.js";
 import { showConfirm } from "./modal.js";
+import { DEFAULT_SETTINGS, normalizeSettings } from "../../shared/settings.js";
 import {
   AUDIT_RULES,
   EXPECTATION_IMPORT_TEMPLATE,
@@ -97,10 +98,32 @@ const els = {
   clearAllBtn: document.getElementById("clear-all-btn"),
   settingsBtn: document.getElementById("settings-btn"),
   settingsModal: document.getElementById("settings-modal"),
+  settingsForm: document.getElementById("settings-form"),
   closeSettingsBtn: document.getElementById("close-settings-btn"),
   saveSettingsBtn: document.getElementById("save-settings-btn"),
   settingMaxEvents: document.getElementById("setting-max-events"),
   settingSessionWindow: document.getElementById("setting-session-window"),
+  settingDuplicateWindow: document.getElementById("setting-duplicate-window"),
+  settingCaptureNetwork: document.getElementById("setting-capture-network"),
+  settingCaptureDataLayer: document.getElementById("setting-capture-datalayer"),
+  settingCaptureDiagnostics: document.getElementById(
+    "setting-capture-diagnostics",
+  ),
+  settingDefaultView: document.getElementById("setting-default-view"),
+  settingDefaultPlatform: document.getElementById("setting-default-platform"),
+  settingDefaultStatus: document.getElementById("setting-default-status"),
+  settingDefaultSessionView: document.getElementById(
+    "setting-default-session-view",
+  ),
+  settingRestoreWorkspace: document.getElementById("setting-restore-workspace"),
+  settingAutosaveDrafts: document.getElementById("setting-autosave-drafts"),
+  settingCompactEvents: document.getElementById("setting-compact-events"),
+  settingAutoOpenPayload: document.getElementById("setting-auto-open-payload"),
+  settingReportDiagnostics: document.getElementById("setting-report-diagnostics"),
+  settingReportPayloads: document.getElementById("setting-report-payloads"),
+  settingRawExportScope: document.getElementById("setting-raw-export-scope"),
+  trimEventsBtn: document.getElementById("trim-events-btn"),
+  resetSettingsBtn: document.getElementById("reset-settings-btn"),
   clearDraftBtn: document.getElementById("clear-draft-btn"),
   drawer: document.getElementById("event-drawer"),
   drawerBackdrop: document.getElementById("drawer-backdrop"),
@@ -112,19 +135,29 @@ const els = {
 
 function hydrateWorkspaceState() {
   const draft = store.workspaceDraft || {};
-  const filters = draft.filters || {};
-  state.activeView = draft.activeWorkspaceView || "overview";
+  const settings = normalizeSettings(store.settings);
+  const shouldRestoreDraft =
+    settings.restoreWorkspace &&
+    Object.keys(draft).length > 0;
+  const filters = shouldRestoreDraft ? draft.filters || {} : {};
+
+  state.activeView = shouldRestoreDraft
+    ? draft.activeWorkspaceView || settings.defaultView
+    : settings.defaultView;
   state.searchQuery = filters.searchQuery || "";
-  state.platformFilter = filters.platformFilter || "All";
-  state.statusFilter = filters.statusFilter || "All";
+  state.platformFilter = filters.platformFilter || settings.defaultPlatformFilter;
+  state.statusFilter = filters.statusFilter || settings.defaultStatusFilter;
   state.selectedTabId = filters.selectedTabId || "all";
-  state.isSessionView = !!filters.isSessionView;
+  state.isSessionView =
+    filters.isSessionView === undefined
+      ? settings.defaultSessionView
+      : !!filters.isSessionView;
   state.expectedPixels = {
     ...(store.settings?.expectedPixels || {}),
-    ...(draft.expectedPixels || {}),
+    ...(shouldRestoreDraft ? draft.expectedPixels || {} : {}),
   };
   state.expectedEvents = normalizeExpectedEvents(
-    draft.expectedEvents?.length > 0
+    shouldRestoreDraft && draft.expectedEvents?.length > 0
       ? draft.expectedEvents
       : store.settings?.expectedEvents?.length > 0
         ? store.settings.expectedEvents
@@ -135,6 +168,7 @@ function hydrateWorkspaceState() {
   els.platformFilter.value = state.platformFilter;
   els.statusFilter.value = state.statusFilter;
   els.sessionToggle.checked = state.isSessionView;
+  applyVisualSettings();
   setView(state.activeView, { render: false, persist: false });
   hydrated = true;
 }
@@ -598,6 +632,7 @@ function renderEventDrawer(event) {
   const status = classifyEventStatus(event, warnings);
   const richDetails = extractRichDetails(event.eventData || {}, event.platform);
   const payload = JSON.stringify(event.eventData || {}, null, 2);
+  const showPayload = store.settings?.autoOpenPayload === true;
 
   els.drawerPlatform.textContent = event.platform;
   els.drawerTitle.textContent = event.eventName;
@@ -636,10 +671,10 @@ function renderEventDrawer(event) {
         <p class="eyebrow">Raw Payload</p>
         <div class="hero-actions">
           <button id="drawer-copy-raw" class="button-pill button-outline" data-copy="${escapeHtml(payload)}">Copy JSON</button>
-          <button id="drawer-toggle-raw" class="button-pill button-outline">Show Payload</button>
+          <button id="drawer-toggle-raw" class="button-pill button-outline">${showPayload ? "Hide Payload" : "Show Payload"}</button>
         </div>
       </div>
-      <div id="drawer-raw-payload" class="code-block" hidden>
+      <div id="drawer-raw-payload" class="code-block" ${showPayload ? "" : "hidden"}>
         <pre>${escapeHtml(payload)}</pre>
       </div>
     </div>
@@ -754,15 +789,37 @@ function exportData(format, events = store.getAllEvents()) {
   );
 }
 
+function getRawExportEvents() {
+  const scope = store.settings?.rawExportScope || DEFAULT_SETTINGS.rawExportScope;
+  const includeDiagnostics =
+    store.settings?.reportIncludeDiagnostics !== false ||
+    state.platformFilter === "Diagnostics";
+
+  if (scope === "visible") {
+    return getEvents({ includeDiagnostics });
+  }
+
+  if (scope === "selected-tab" && state.selectedTabId !== "all") {
+    return [...(store.events[state.selectedTabId] || [])].sort(
+      (a, b) => b.timestamp - a.timestamp,
+    );
+  }
+
+  return store.getAllEvents();
+}
+
 function buildCurrentReportModel({ filtered = false } = {}) {
   const auditRun = getActiveAuditRun();
+  const includeDiagnostics =
+    store.settings?.reportIncludeDiagnostics !== false ||
+    (filtered && state.platformFilter === "Diagnostics");
   const events = filtered
-    ? getEvents({ includeDiagnostics: true })
+    ? getEvents({ includeDiagnostics })
     : getEvents({
         applyPlatform: false,
         applySearch: false,
         applyStatus: false,
-        includeDiagnostics: true,
+        includeDiagnostics,
       });
   return buildReportModel({
     events,
@@ -777,6 +834,9 @@ function buildCurrentReportModel({ filtered = false } = {}) {
           tab: state.selectedTabId,
         }
       : null,
+    options: {
+      includePayloadAppendix: store.settings?.reportIncludePayloads !== false,
+    },
   });
 }
 
@@ -818,6 +878,10 @@ function downloadContent(content, filename, mimeType) {
 
 function scheduleDraftSave() {
   if (!hydrated) return;
+  if (store.settings?.autoSaveWorkspace === false) {
+    if (els.draftStatus) els.draftStatus.textContent = "Draft autosave off";
+    return;
+  }
   if (els.draftStatus) els.draftStatus.textContent = "Saving draft...";
   clearTimeout(draftTimer);
   draftTimer = setTimeout(async () => {
@@ -1053,8 +1117,12 @@ els.downloadReportBtn.addEventListener("click", () => exportReport());
 els.exportFilteredReportBtn.addEventListener("click", () =>
   exportReport({ filtered: true }),
 );
-els.exportJsonBtn.addEventListener("click", () => exportData("json"));
-els.exportCsvBtn.addEventListener("click", () => exportData("csv"));
+els.exportJsonBtn.addEventListener("click", () =>
+  exportData("json", getRawExportEvents()),
+);
+els.exportCsvBtn.addEventListener("click", () =>
+  exportData("csv", getRawExportEvents()),
+);
 
 els.clearAllBtn.addEventListener("click", async () => {
   const confirmed = await showConfirm(
@@ -1068,15 +1136,83 @@ els.clearAllBtn.addEventListener("click", async () => {
   }
 });
 
-els.settingsBtn.addEventListener("click", () => {
-  els.settingMaxEvents.value = store.settings?.maxEvents || "500";
-  els.settingSessionWindow.value = store.settings?.sessionWindow || "1800000";
+function applyVisualSettings() {
+  document.body.classList.toggle(
+    "compact-events",
+    store.settings?.compactEvents === true,
+  );
+}
+
+function hydrateSettingsForm() {
+  const settings = normalizeSettings(store.settings);
+  els.settingMaxEvents.value = String(settings.maxEvents);
+  els.settingSessionWindow.value = String(settings.sessionWindow);
+  els.settingDuplicateWindow.value = String(settings.duplicateWindow);
+  els.settingCaptureNetwork.checked = settings.captureNetwork;
+  els.settingCaptureDataLayer.checked = settings.captureDataLayer;
+  els.settingCaptureDiagnostics.checked = settings.captureDiagnostics;
+  els.settingDefaultView.value = settings.defaultView;
+  els.settingDefaultPlatform.value = settings.defaultPlatformFilter;
+  els.settingDefaultStatus.value = settings.defaultStatusFilter;
+  els.settingDefaultSessionView.checked = settings.defaultSessionView;
+  els.settingRestoreWorkspace.checked = settings.restoreWorkspace;
+  els.settingAutosaveDrafts.checked = settings.autoSaveWorkspace;
+  els.settingCompactEvents.checked = settings.compactEvents;
+  els.settingAutoOpenPayload.checked = settings.autoOpenPayload;
+  els.settingReportDiagnostics.checked = settings.reportIncludeDiagnostics;
+  els.settingReportPayloads.checked = settings.reportIncludePayloads;
+  els.settingRawExportScope.value = settings.rawExportScope;
+}
+
+function readSettingsForm() {
+  return {
+    maxEvents: parseInt(els.settingMaxEvents.value, 10),
+    sessionWindow: parseInt(els.settingSessionWindow.value, 10),
+    duplicateWindow: parseInt(els.settingDuplicateWindow.value, 10),
+    captureNetwork: els.settingCaptureNetwork.checked,
+    captureDataLayer: els.settingCaptureDataLayer.checked,
+    captureDiagnostics: els.settingCaptureDiagnostics.checked,
+    restoreWorkspace: els.settingRestoreWorkspace.checked,
+    autoSaveWorkspace: els.settingAutosaveDrafts.checked,
+    defaultView: els.settingDefaultView.value,
+    defaultPlatformFilter: els.settingDefaultPlatform.value,
+    defaultStatusFilter: els.settingDefaultStatus.value,
+    defaultSessionView: els.settingDefaultSessionView.checked,
+    compactEvents: els.settingCompactEvents.checked,
+    autoOpenPayload: els.settingAutoOpenPayload.checked,
+    reportIncludeDiagnostics: els.settingReportDiagnostics.checked,
+    reportIncludePayloads: els.settingReportPayloads.checked,
+    rawExportScope: els.settingRawExportScope.value,
+  };
+}
+
+function openSettings() {
+  hydrateSettingsForm();
   els.settingsModal.style.display = "flex";
-});
+  els.settingMaxEvents.focus();
+}
+
+els.settingsBtn.addEventListener("click", openSettings);
 
 function closeSettings() {
   els.settingsModal.style.display = "none";
 }
+
+async function showSettingsConfirm(title, message, options = {}) {
+  const { reopenOnConfirm = false } = options;
+  const wasOpen = els.settingsModal.style.display !== "none";
+  if (wasOpen) closeSettings();
+
+  const confirmed = await showConfirm(title, message);
+  if (wasOpen && (!confirmed || reopenOnConfirm)) {
+    openSettings();
+  }
+  return confirmed;
+}
+
+els.settingsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+});
 
 els.closeSettingsBtn.addEventListener("click", closeSettings);
 els.settingsModal.addEventListener("click", (event) => {
@@ -1084,16 +1220,44 @@ els.settingsModal.addEventListener("click", (event) => {
 });
 
 els.saveSettingsBtn.addEventListener("click", async () => {
-  await store.saveSettings({
-    maxEvents: parseInt(els.settingMaxEvents.value, 10),
-    sessionWindow: parseInt(els.settingSessionWindow.value, 10),
-  });
+  await store.saveSettings(readSettingsForm());
+  applyVisualSettings();
   closeSettings();
   renderAll();
 });
 
+els.trimEventsBtn.addEventListener("click", async () => {
+  const limit = parseInt(els.settingMaxEvents.value, 10) || store.settings.maxEvents;
+  const trimmed = await store.trimEventsToMax(limit);
+  const original = els.trimEventsBtn.textContent;
+  els.trimEventsBtn.textContent = trimmed ? "Trimmed" : "Already Trimmed";
+  setTimeout(() => {
+    els.trimEventsBtn.textContent = original;
+  }, 1200);
+});
+
+els.resetSettingsBtn.addEventListener("click", async () => {
+  const confirmed = await showSettingsConfirm(
+    "Reset Preferences?",
+    "This resets capture, workspace, report, and export preferences. Saved expectations remain.",
+    { reopenOnConfirm: true },
+  );
+  if (!confirmed) return;
+
+  await store.replaceSettings({
+    ...DEFAULT_SETTINGS,
+    expectedPixels: store.settings?.expectedPixels || {},
+    expectedEvents: store.settings?.expectedEvents || [],
+  });
+  hydrateSettingsForm();
+  applyVisualSettings();
+  hydrated = false;
+  hydrateWorkspaceState();
+  renderAll();
+});
+
 els.clearDraftBtn.addEventListener("click", async () => {
-  const confirmed = await showConfirm(
+  const confirmed = await showSettingsConfirm(
     "Clear Settings Drafts?",
     "This clears autosaved workspace view, filters, and unsaved checklist drafts.",
   );
@@ -1125,6 +1289,7 @@ document.addEventListener("click", (event) => {
 store.subscribe((eventsMap) => {
   if (!store.ready) return;
   if (!hydrated) hydrateWorkspaceState();
+  applyVisualSettings();
   updateTabSelector(eventsMap);
   renderAll();
 });

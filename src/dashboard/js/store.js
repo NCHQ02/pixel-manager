@@ -1,10 +1,16 @@
+import {
+  DEFAULT_SETTINGS,
+  mergeSettings,
+  normalizeSettings,
+} from "../../shared/settings.js";
+
 /**
  * State Management for the Dashboard
  */
 export class PixelStore {
   constructor() {
     this.events = {};
-    this.settings = { maxEvents: 500, sessionWindow: 1800000 };
+    this.settings = { ...DEFAULT_SETTINGS };
     this.auditRuns = {};
     this.auditState = { auditTabs: {}, activeAuditRunId: null };
     this.workspaceDraft = {};
@@ -22,7 +28,7 @@ export class PixelStore {
       "auditWorkspaceDraft",
     ]);
     this.events = result.trackedEvents || {};
-    if (result.settings) this.settings = result.settings;
+    this.settings = normalizeSettings(result.settings);
     this.auditRuns = result.auditRuns || {};
     this.workspaceDraft = result.auditWorkspaceDraft || {};
     await this.refreshAuditState();
@@ -38,7 +44,9 @@ export class PixelStore {
           shouldNotify = true;
         }
         if (changes.settings) {
-          this.settings = changes.settings.newValue || this.settings;
+          this.settings = normalizeSettings(
+            changes.settings.newValue || this.settings,
+          );
           shouldNotify = true;
         }
         if (changes.auditRuns) {
@@ -75,8 +83,33 @@ export class PixelStore {
   }
 
   async saveSettings(newSettings) {
-    this.settings = { ...this.settings, ...newSettings };
+    this.settings = mergeSettings(this.settings, newSettings);
     await chrome.storage.local.set({ settings: this.settings });
+    await this.trimEventsToMax(this.settings.maxEvents);
+  }
+
+  async replaceSettings(newSettings) {
+    this.settings = normalizeSettings(newSettings);
+    await chrome.storage.local.set({ settings: this.settings });
+    await this.trimEventsToMax(this.settings.maxEvents);
+  }
+
+  async trimEventsToMax(maxEvents = this.settings.maxEvents) {
+    const limit = Number.parseInt(maxEvents, 10) || DEFAULT_SETTINGS.maxEvents;
+    let changed = false;
+    const trimmedEvents = Object.fromEntries(
+      Object.entries(this.events || {}).map(([tabId, tabEvents]) => {
+        if (!Array.isArray(tabEvents)) return [tabId, []];
+        if (tabEvents.length > limit) changed = true;
+        return [tabId, tabEvents.slice(0, limit)];
+      }),
+    );
+
+    if (!changed) return false;
+    this.events = trimmedEvents;
+    await chrome.storage.local.set({ trackedEvents: trimmedEvents });
+    this.notify();
+    return true;
   }
 
   async updateActiveAuditRun(patch) {

@@ -16,6 +16,7 @@ import {
   mergeWorkspaceDraft,
   parseExpectationImportJson,
 } from "../src/dashboard/js/audit.js";
+import { normalizeSettings } from "../src/shared/settings.js";
 
 test("parses Google Ads conversion from googleadservices endpoint", () => {
   const parsed = parseGoogleRequest(
@@ -267,6 +268,49 @@ test("builds professional HTML report without external dependencies", () => {
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /<(script|link)\b/i);
   assert.doesNotMatch(html, /(src|href)=["']https?:/i);
+});
+
+test("can omit raw payload appendix from professional report", () => {
+  const reportModel = buildReportModel({
+    auditRun: { domain: "shop.test", startedAt: 1, endedAt: 2 },
+    events: [
+      {
+        id: "evt-1",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "Purchase",
+        eventData: { eid: "evt-1" },
+        timestamp: 1,
+      },
+    ],
+    options: { includePayloadAppendix: false },
+  });
+  const html = buildProfessionalReportHtml(reportModel);
+
+  assert.doesNotMatch(html, /Raw Payload Appendix/);
+  assert.doesNotMatch(html, /evt-1/);
+});
+
+test("normalizes expanded settings with safe defaults", () => {
+  const settings = normalizeSettings({
+    maxEvents: "999999",
+    sessionWindow: "bad",
+    captureNetwork: false,
+    defaultView: "issues",
+    rawExportScope: "visible",
+    expectedPixels: { Meta: " 123 " },
+    expectedEvents: [{ platform: "Meta", eventName: "Purchase" }],
+  });
+
+  assert.equal(settings.maxEvents, 5000);
+  assert.equal(settings.sessionWindow, 1800000);
+  assert.equal(settings.captureNetwork, false);
+  assert.equal(settings.defaultView, "issues");
+  assert.equal(settings.rawExportScope, "visible");
+  assert.deepEqual(settings.expectedPixels, { Meta: "123" });
+  assert.deepEqual(settings.expectedEvents, [
+    { platform: "Meta", eventName: "Purchase" },
+  ]);
 });
 
 test("report model keeps audited page path in target label", () => {
