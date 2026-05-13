@@ -32,11 +32,5 @@
   },
   "action": {
     "default_icon": "logo.png"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["src/content/inject.js"],
-      "matches": ["http://*/*", "https://*/*"]
-    }
-  ]
+  }
 }

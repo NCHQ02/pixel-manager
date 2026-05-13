@@ -1,6 +1,16 @@
 import { store } from "./store.js";
 import { PixelRenderer } from "./renderer.js";
 import { showConfirm } from "./modal.js";
+import {
+  selectActiveAuditRun,
+  selectActiveAuditTab,
+  selectEvents,
+} from "./state/selectors.js";
+import {
+  downloadContent,
+  slugify,
+  todayIsoDate,
+} from "./controllers/downloads.js";
 import { DEFAULT_SETTINGS, normalizeSettings } from "../../shared/settings.js";
 import {
   AUDIT_RULES,
@@ -174,63 +184,15 @@ function hydrateWorkspaceState() {
 }
 
 function getActiveAuditRun() {
-  const activeRunId = store.auditState?.activeAuditRunId;
-  return activeRunId ? store.auditRuns?.[activeRunId] : null;
+  return selectActiveAuditRun(store);
 }
 
 function getActiveAuditTab() {
-  const activeRunId = store.auditState?.activeAuditRunId;
-  const tabs = Object.values(store.auditState?.auditTabs || {});
-  return tabs.find((tab) => tab.auditRunId === activeRunId) || null;
+  return selectActiveAuditTab(store);
 }
 
 function getEvents(options = {}) {
-  const {
-    applyPlatform = true,
-    applyStatus = true,
-    applySearch = true,
-    includeDiagnostics = false,
-  } = options;
-  let events =
-    state.selectedTabId === "all"
-      ? store.getAllEvents()
-      : [...(store.events[state.selectedTabId] || [])].sort(
-          (a, b) => b.timestamp - a.timestamp,
-        );
-
-  if (!includeDiagnostics && state.platformFilter !== "Diagnostics") {
-    events = events.filter((event) => !event.isDiagnostic);
-  }
-
-  if (applyPlatform) {
-    if (state.platformFilter === "Diagnostics") {
-      events = events.filter((event) => event.isDiagnostic);
-    } else if (state.platformFilter === "Google") {
-      events = events.filter((event) =>
-        ["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(event.platform),
-      );
-    } else if (state.platformFilter !== "All") {
-      events = events.filter((event) => event.platform === state.platformFilter);
-    }
-  }
-
-  if (applyStatus && state.statusFilter !== "All") {
-    events = events.filter((event) => {
-      const status = classifyEventStatus(event, auditEvent(event));
-      return status.key === state.statusFilter;
-    });
-  }
-
-  if (applySearch && state.searchQuery) {
-    const query = state.searchQuery.toLowerCase();
-    events = events.filter((event) =>
-      [event.eventName, event.pixelId, event.platform, event.url, event.source]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
-  }
-
-  return events.sort((a, b) => b.timestamp - a.timestamp);
+  return selectEvents(store, state, options);
 }
 
 function renderAll() {
@@ -779,7 +741,7 @@ function exportData(format, events = store.getAllEvents()) {
     alert("No data to export.");
     return;
   }
-  const date = new Date().toISOString().split("T")[0];
+  const date = todayIsoDate();
   const content =
     format === "json" ? JSON.stringify(events, null, 2) : eventsToCsv(events);
   downloadContent(
@@ -847,7 +809,7 @@ function exportReport({ filtered = false } = {}) {
   const domain = slugify(
     formatAuditTargetLabel(auditRun?.url, auditRun?.domain || "not-available"),
   );
-  const date = new Date().toISOString().split("T")[0];
+  const date = todayIsoDate();
   downloadContent(
     html,
     `omnisignal-audit-${domain}-${date}.html`,
@@ -864,16 +826,6 @@ function previewReport({ filtered = false } = {}) {
   );
 
   window.open(activeReportPreviewUrl, "_blank", "noopener,noreferrer");
-}
-
-function downloadContent(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 function scheduleDraftSave() {
@@ -981,14 +933,6 @@ function safeHostname(url) {
   } catch (_e) {
     return "Unknown URL";
   }
-}
-
-function slugify(value) {
-  return String(value || "not-available")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
 }
 
 els.navButtons.forEach((button) => {

@@ -22,11 +22,21 @@ Start with 10-20 users who already feel tracking pain:
 
 Target: a new tester should complete setup in under 3 minutes.
 
+## Data Handling During Beta
+
+Captured audit events are stored locally in the browser extension's IndexedDB
+database. Settings and draft checklist preferences stay in `chrome.storage.local`.
+OmniSignal does not send captured audit data to a backend service during private
+beta. Users can export local data as HTML, JSON, or CSV and can clear captured
+events from the dashboard.
+
 ## Success Criteria
 
 - Tester can install and activate the extension without live support.
 - Tester can audit at least one real website.
 - Dashboard remains stable during a 30 minute audit session.
+- Refreshing or loading a new page in an audited tab starts a clean event
+  canvas so the dashboard stays focused on the current page/session.
 - Tester can immediately identify valid events, warnings, diagnostics, and
   missing required parameters.
 - Exported HTML, JSON, or CSV contains enough context to share with a teammate.

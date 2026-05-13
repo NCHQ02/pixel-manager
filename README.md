@@ -15,7 +15,7 @@ OmniSignal is a local Chrome extension for auditing Meta, TikTok, GA4, Google Ad
 
 ## Privacy Model
 
-Captured data stays in `chrome.storage.local` by default. The extension has no backend service in v1 and redacts likely plaintext sensitive values before local storage.
+Captured audit events stay in local IndexedDB by default. Settings and checklist drafts stay in `chrome.storage.local`. The extension has no backend service in v1 and redacts likely plaintext sensitive values before local storage.
 
 ## Development
 

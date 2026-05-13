@@ -33,16 +33,6 @@ function deactivateContentScript() {
   omniSignalState.teardown();
 }
 
-function safeGetRuntimeUrl(path) {
-  if (!hasRuntimeContext()) return "";
-  try {
-    return chrome.runtime.getURL(path);
-  } catch (_e) {
-    deactivateContentScript();
-    return "";
-  }
-}
-
 function safeSendMessage(message) {
   if (!omniSignalState.active || !hasRuntimeContext()) {
     deactivateContentScript();
@@ -86,16 +76,6 @@ function addRuntimeListener(handler) {
   } catch (_e) {
     deactivateContentScript();
   }
-}
-
-const injectedScriptUrl = safeGetRuntimeUrl("src/content/inject.js");
-if (injectedScriptUrl) {
-  const script = document.createElement("script");
-  script.src = injectedScriptUrl;
-  script.onload = function () {
-    this.remove();
-  };
-  (document.head || document.documentElement).appendChild(script);
 }
 
 addWindowListener("PixelTracker_DataLayerPush", (event) => {

@@ -41,7 +41,8 @@ requests, show results in the dashboard, and keep audit history local.
 Users can clear captured audit data from the dashboard at any time. Users can
 also export local audit data as HTML, JSON, or CSV for their own analysis.
 
-## Publishing Note
+## Private Beta Support
 
-Before Chrome Web Store submission, replace this section with the final support
-contact and publisher identity used for the listing.
+Private beta users receive support through the contact channel included in their
+beta invitation. A public Chrome Web Store submission should use the same public
+developer account and support contact in the store listing and this policy.

@@ -1,3 +1,5 @@
+import { eventRepository } from "../../shared/event-repository.js";
+import { MESSAGE_TYPES } from "../../shared/messages.js";
 import {
   DEFAULT_SETTINGS,
   mergeSettings,
@@ -5,10 +7,12 @@ import {
 } from "../../shared/settings.js";
 
 /**
- * State Management for the Dashboard
+ * Dashboard state facade. Settings and drafts stay in chrome.storage.local;
+ * audit events and runs live in IndexedDB through the shared repository.
  */
 export class PixelStore {
-  constructor() {
+  constructor(repository = eventRepository) {
+    this.repository = repository;
     this.events = {};
     this.settings = { ...DEFAULT_SETTINGS };
     this.auditRuns = {};
@@ -20,51 +24,55 @@ export class PixelStore {
   }
 
   async init() {
-    // Initial load
+    await this.repository.init();
+    await this.repository.migrateLegacyStorage(chrome.storage.local);
+
     const result = await chrome.storage.local.get([
-      "trackedEvents",
       "settings",
-      "auditRuns",
       "auditWorkspaceDraft",
     ]);
-    this.events = result.trackedEvents || {};
     this.settings = normalizeSettings(result.settings);
-    this.auditRuns = result.auditRuns || {};
     this.workspaceDraft = result.auditWorkspaceDraft || {};
+    await this.refreshEvents();
     await this.refreshAuditState();
     this.ready = true;
     this.notify();
 
-    // Listen for storage changes
     chrome.storage.onChanged.addListener((changes, namespace) => {
-      if (namespace === "local") {
-        let shouldNotify = false;
-        if (changes.trackedEvents) {
-          this.events = changes.trackedEvents.newValue || {};
-          shouldNotify = true;
-        }
-        if (changes.settings) {
-          this.settings = normalizeSettings(
-            changes.settings.newValue || this.settings,
-          );
-          shouldNotify = true;
-        }
-        if (changes.auditRuns) {
-          this.auditRuns = changes.auditRuns.newValue || {};
-          shouldNotify = true;
-        }
-        if (changes.auditWorkspaceDraft) {
-          this.workspaceDraft = changes.auditWorkspaceDraft.newValue || {};
-          shouldNotify = true;
-        }
-        if (shouldNotify) this.notify();
+      if (namespace !== "local") return;
+      let shouldNotify = false;
+      if (changes.settings) {
+        this.settings = normalizeSettings(
+          changes.settings.newValue || this.settings,
+        );
+        shouldNotify = true;
+      }
+      if (changes.auditWorkspaceDraft) {
+        this.workspaceDraft = changes.auditWorkspaceDraft.newValue || {};
+        shouldNotify = true;
+      }
+      if (shouldNotify) this.notify();
+    });
+
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === MESSAGE_TYPES.EVENTS_CHANGED) {
+        this.refreshEvents().then(() => {
+          this.refreshAuditState().then(() => this.notify());
+        });
       }
     });
   }
 
+  async refreshEvents() {
+    this.events = await this.repository.getEventsMap();
+    this.auditRuns = await this.repository.getAuditRunsMap();
+  }
+
   async refreshAuditState() {
     try {
-      const state = await chrome.runtime.sendMessage({ type: "GET_AUDIT_STATE" });
+      const state = await chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.GET_AUDIT_STATE,
+      });
       if (state) {
         this.auditState = state;
         this.auditRuns = state.auditRuns || this.auditRuns;
@@ -74,9 +82,10 @@ export class PixelStore {
 
   async startAudit({ reload = false } = {}) {
     const result = await chrome.runtime.sendMessage({
-      type: "START_AUDIT",
+      type: MESSAGE_TYPES.START_AUDIT,
       reload,
     });
+    await this.refreshEvents();
     await this.refreshAuditState();
     this.notify();
     return result;
@@ -96,18 +105,9 @@ export class PixelStore {
 
   async trimEventsToMax(maxEvents = this.settings.maxEvents) {
     const limit = Number.parseInt(maxEvents, 10) || DEFAULT_SETTINGS.maxEvents;
-    let changed = false;
-    const trimmedEvents = Object.fromEntries(
-      Object.entries(this.events || {}).map(([tabId, tabEvents]) => {
-        if (!Array.isArray(tabEvents)) return [tabId, []];
-        if (tabEvents.length > limit) changed = true;
-        return [tabId, tabEvents.slice(0, limit)];
-      }),
-    );
-
+    const changed = await this.repository.trimEventsToMax(limit);
     if (!changed) return false;
-    this.events = trimmedEvents;
-    await chrome.storage.local.set({ trackedEvents: trimmedEvents });
+    await this.refreshEvents();
     this.notify();
     return true;
   }
@@ -116,15 +116,8 @@ export class PixelStore {
     const activeRunId = this.auditState?.activeAuditRunId;
     if (!activeRunId) return;
 
-    const auditRuns = {
-      ...this.auditRuns,
-      [activeRunId]: {
-        ...(this.auditRuns[activeRunId] || { id: activeRunId }),
-        ...patch,
-      },
-    };
-    this.auditRuns = auditRuns;
-    await chrome.storage.local.set({ auditRuns });
+    await this.repository.patchAuditRun(activeRunId, patch);
+    this.auditRuns = await this.repository.getAuditRunsMap();
     this.notify();
   }
 
@@ -156,13 +149,8 @@ export class PixelStore {
     this.notify();
   }
 
-  /**
-   * Subscribe to state changes
-   * @param {Function} callback 
-   */
   subscribe(callback) {
     this.listeners.push(callback);
-    // Trigger immediately with current state
     callback(this.events, this);
   }
 
@@ -170,9 +158,6 @@ export class PixelStore {
     this.listeners.forEach((callback) => callback(this.events, this));
   }
 
-  /**
-   * Returns a flattened list of all events, sorted by timestamp
-   */
   getAllEvents() {
     let all = [];
     for (const tabId in this.events) {
@@ -181,11 +166,10 @@ export class PixelStore {
     return all.sort((a, b) => b.timestamp - a.timestamp);
   }
 
-  /**
-   * Clear all stored events
-   */
   async clearAll() {
-    await chrome.storage.local.set({ trackedEvents: {}, auditRuns: {} });
+    await this.repository.clearAll();
+    await chrome.storage.local.remove(["trackedEvents", "auditRuns"]);
+    await this.refreshEvents();
     this.events = {};
     this.auditRuns = {};
     this.notify();

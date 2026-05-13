@@ -12,7 +12,7 @@
 - Issues view for duplicate firing, missing parameters, and privacy redactions.
 - HTML audit report export for client or developer handoff.
 - JSON and CSV export.
-- Local-only storage with plaintext sensitive value redaction.
+- Local-only IndexedDB event storage with plaintext sensitive value redaction.
 
 ## Pro V2
 
@@ -25,8 +25,8 @@
 
 ## Scale Work Before Paid Launch
 
-- Move the event log from `chrome.storage.local` to IndexedDB with a ring buffer.
-- Batch writes and dashboard updates during high-traffic event bursts.
+- Add retention controls and a bounded ring buffer for long audit histories.
+- Batch IndexedDB writes and dashboard updates during high-traffic event bursts.
 - Virtualize the event table for long sessions.
 - Version parser output schemas and migration behavior.
 - Add opt-in cloud sync only after privacy review and user-facing consent.

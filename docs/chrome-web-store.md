@@ -43,9 +43,12 @@ platform domains rather than every URL.
 
 ## Pre-Submission Checklist
 
-- Confirm `docs/privacy-policy.md` has final publisher contact details.
-- Replace current remote font/icon references with packaged local assets before
-  public submission.
+- Confirm `docs/privacy-policy.md` uses the final public publisher contact
+  details before public submission.
+- Private beta uses the original remote visual assets for UI fidelity. Before a
+  public Chrome Web Store submission, decide whether to package equivalent local
+  font/icon assets.
 - Run `npm.cmd test`.
+- Run `npm.cmd run verify`.
 - Load unpacked extension in Chrome and test one live site.
 - Capture fresh screenshots after the final UI pass.
