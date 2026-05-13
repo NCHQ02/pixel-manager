@@ -148,6 +148,29 @@ const FUNNEL_RANKS = new Map([
   ["floodlight", 65],
 ]);
 
+const EXPECTATION_PLATFORM_ALIASES = new Map([
+  ["meta", "Meta"],
+  ["facebook", "Meta"],
+  ["fb", "Meta"],
+  ["tiktok", "TikTok"],
+  ["tik tok", "TikTok"],
+  ["ga4", "GA4"],
+  ["google analytics 4", "GA4"],
+  ["google ads", "Google Ads"],
+  ["googleads", "Google Ads"],
+  ["adwords", "Google Ads"],
+  ["floodlight", "Floodlight"],
+  ["doubleclick", "Floodlight"],
+]);
+
+const SUPPORTED_EXPECTATION_PLATFORMS = new Set([
+  "Meta",
+  "TikTok",
+  "GA4",
+  "Google Ads",
+  "Floodlight",
+]);
+
 export const AUDIT_RULES = BASE_AUDIT_RULES.map((rule) => ({
   severity: rule.severity || "warning",
   message:
@@ -161,15 +184,100 @@ export const DEFAULT_EXPECTED_EVENTS = AUDIT_RULES.map((rule) => ({
   eventName: rule.eventName,
 }));
 
+export const EXPECTATION_IMPORT_TEMPLATE = Object.freeze({
+  expectedPixels: {
+    Meta: "",
+    TikTok: "",
+    GA4: "",
+    "Google Ads": "",
+    Floodlight: "",
+  },
+  expectedEvents: [
+    { platform: "Meta", eventName: "PageView" },
+    { platform: "Meta", eventName: "ViewContent" },
+    { platform: "Meta", eventName: "AddToCart" },
+    { platform: "Meta", eventName: "Purchase" },
+    { platform: "TikTok", eventName: "Pageview" },
+    { platform: "TikTok", eventName: "ViewContent" },
+    { platform: "TikTok", eventName: "AddToCart" },
+    { platform: "TikTok", eventName: "CompletePayment" },
+    { platform: "GA4", eventName: "page_view" },
+    { platform: "GA4", eventName: "add_to_cart" },
+    { platform: "GA4", eventName: "purchase" },
+    { platform: "Google Ads", eventName: "Conversion" },
+    { platform: "Floodlight", eventName: "Floodlight" },
+  ],
+});
+
 export function normalizeExpectedEvent(event) {
+  const platform = canonicalPlatform(event.platform);
   return {
     ...event,
-    eventName: canonicalEventName(event.platform, event.eventName),
+    platform,
+    eventName: canonicalEventName(platform, event.eventName),
   };
 }
 
 export function normalizeExpectedEvents(events = []) {
   return events.map(normalizeExpectedEvent);
+}
+
+export function parseExpectationImportJson(rawJson) {
+  let parsed;
+  try {
+    parsed = typeof rawJson === "string" ? JSON.parse(rawJson) : rawJson;
+  } catch (_e) {
+    throw new Error("Invalid JSON. Check quotes, commas, and brackets.");
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Import must be a JSON object or an array of expected events.");
+  }
+
+  const rawEvents = Array.isArray(parsed)
+    ? parsed
+    : parsed.expectedEvents || parsed.events || [];
+  const rawPixels = Array.isArray(parsed)
+    ? {}
+    : parsed.expectedPixels || parsed.pixels || {};
+
+  if (!Array.isArray(rawEvents)) {
+    throw new Error("expectedEvents must be an array.");
+  }
+  if (!rawPixels || typeof rawPixels !== "object" || Array.isArray(rawPixels)) {
+    throw new Error("expectedPixels must be an object.");
+  }
+
+  const expectedPixels = {};
+  Object.entries(rawPixels).forEach(([platform, value]) => {
+    const canonical = canonicalPlatform(platform);
+    const pixelId = String(value || "").trim();
+    if (SUPPORTED_EXPECTATION_PLATFORMS.has(canonical) && pixelId) {
+      expectedPixels[canonical] = pixelId;
+    }
+  });
+
+  const seen = new Set();
+  const expectedEvents = [];
+  rawEvents.forEach((event) => {
+    if (!event || typeof event !== "object") return;
+    const platform = canonicalPlatform(event.platform);
+    const eventName = String(
+      event.eventName || event.event || event.name || "",
+    ).trim();
+    if (!SUPPORTED_EXPECTATION_PLATFORMS.has(platform) || !eventName) return;
+    const normalized = normalizeExpectedEvent({ platform, eventName });
+    const key = `${normalized.platform}::${normalized.eventName}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    expectedEvents.push(normalized);
+  });
+
+  return {
+    expectedPixels,
+    expectedEvents,
+    skippedEvents: rawEvents.length - expectedEvents.length,
+  };
 }
 
 export function formatAuditTargetLabel(url, fallback = "Not available") {
@@ -1027,6 +1135,11 @@ function eventMatchesExpected(event, platform, eventName) {
     normalizeEventName(canonicalEventName(event.platform, event.eventName)) ===
     normalizeEventName(canonicalEventName(platform, eventName))
   );
+}
+
+function canonicalPlatform(platform = "") {
+  const raw = String(platform).trim();
+  return EXPECTATION_PLATFORM_ALIASES.get(raw.toLowerCase()) || raw;
 }
 
 function canonicalEventName(platform, eventName = "") {

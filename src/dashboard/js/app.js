@@ -3,12 +3,14 @@ import { PixelRenderer } from "./renderer.js";
 import { showConfirm } from "./modal.js";
 import {
   AUDIT_RULES,
+  EXPECTATION_IMPORT_TEMPLATE,
   buildIssues,
   buildProfessionalReportHtml,
   buildReportModel,
   formatAuditTargetLabel,
   getIssueFixSuggestion,
   normalizeExpectedEvents,
+  parseExpectationImportJson,
 } from "./audit.js";
 import {
   auditEvent,
@@ -75,6 +77,10 @@ const els = {
   customPlatformSelect: document.getElementById("custom-platform-select"),
   customEventInput: document.getElementById("custom-event-input"),
   addCustomEventBtn: document.getElementById("add-custom-event-btn"),
+  bulkImportJson: document.getElementById("bulk-import-json"),
+  loadImportTemplateBtn: document.getElementById("load-import-template-btn"),
+  importExpectationsBtn: document.getElementById("import-expectations-btn"),
+  bulkImportStatus: document.getElementById("bulk-import-status"),
   saveExpectationsBtn: document.getElementById("save-expectations-btn"),
   draftStatus: document.getElementById("draft-status"),
   checklistList: document.getElementById("checklist-list"),
@@ -853,6 +859,46 @@ function removeExpectedEvent(platform, eventName) {
   );
 }
 
+function loadExpectationImportTemplate() {
+  els.bulkImportJson.value = JSON.stringify(EXPECTATION_IMPORT_TEMPLATE, null, 2);
+  els.bulkImportStatus.textContent =
+    "Template loaded. Fill pixel IDs if needed, then import.";
+  els.bulkImportJson.focus();
+}
+
+function importExpectationsFromJson() {
+  const raw = els.bulkImportJson.value.trim();
+  if (!raw) {
+    els.bulkImportStatus.textContent = "Paste JSON or load the template first.";
+    return;
+  }
+
+  try {
+    const { expectedPixels, expectedEvents, skippedEvents } =
+      parseExpectationImportJson(raw);
+    const before = new Set(state.expectedEvents.map(expectedKey));
+    let addedEvents = 0;
+
+    state.expectedPixels = {
+      ...state.expectedPixels,
+      ...expectedPixels,
+    };
+    expectedEvents.forEach((event) => {
+      if (!before.has(expectedKey(event))) addedEvents++;
+      addExpectedEvent(event.platform, event.eventName);
+    });
+
+    scheduleDraftSave();
+    renderAll();
+    const pixelCount = Object.keys(expectedPixels).length;
+    const skippedText = skippedEvents > 0 ? ` ${skippedEvents} invalid row(s) skipped.` : "";
+    els.bulkImportStatus.textContent =
+      `Imported ${addedEvents} event(s) and ${pixelCount} pixel ID(s) into draft.${skippedText}`;
+  } catch (error) {
+    els.bulkImportStatus.textContent = error.message || "Could not import JSON.";
+  }
+}
+
 function expectedKey(event) {
   const [normalized] = normalizeExpectedEvents([event]);
   return `${normalized.platform}::${normalized.eventName}`;
@@ -973,6 +1019,9 @@ els.addCustomEventBtn.addEventListener("click", () => {
   scheduleDraftSave();
   renderAll();
 });
+
+els.loadImportTemplateBtn.addEventListener("click", loadExpectationImportTemplate);
+els.importExpectationsBtn.addEventListener("click", importExpectationsFromJson);
 
 els.saveExpectationsBtn.addEventListener("click", async () => {
   syncExpectedPixelsFromInputs();

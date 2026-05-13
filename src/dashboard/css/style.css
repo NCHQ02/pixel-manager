@@ -744,6 +744,32 @@ button.timeline-step {
   margin-top: var(--spacing-lg);
 }
 
+.bulk-import-panel {
+  margin-top: var(--spacing-lg);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: var(--spacing-lg);
+}
+
+.bulk-import-input {
+  width: 100%;
+  min-height: 220px;
+  padding: 14px 16px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bulk-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-md);
+}
+
 .qa-row,
 .issue-row,
 .report-row {

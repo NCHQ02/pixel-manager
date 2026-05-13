@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { parseGoogleRequest } from "../src/background/parsers/google.js";
 import {
   DEFAULT_EXPECTED_EVENTS,
+  EXPECTATION_IMPORT_TEMPLATE,
   buildChecklist,
   buildHealthScore,
   buildIssues,
@@ -13,6 +14,7 @@ import {
   buildTimeline,
   getIssueFixSuggestion,
   mergeWorkspaceDraft,
+  parseExpectationImportJson,
 } from "../src/dashboard/js/audit.js";
 
 test("parses Google Ads conversion from googleadservices endpoint", () => {
@@ -72,6 +74,34 @@ test("uses TikTok Pageview casing in expected events", () => {
 
   assert.equal(checklist[0].eventName, "Pageview");
   assert.equal(checklist[0].status, "valid");
+});
+
+test("parses bulk expectation JSON import", () => {
+  const parsed = parseExpectationImportJson(
+    JSON.stringify({
+      ...EXPECTATION_IMPORT_TEMPLATE,
+      expectedPixels: {
+        Meta: "123456",
+        TikTok: "",
+        googleads: "AW-123",
+      },
+      expectedEvents: [
+        { platform: "facebook", eventName: "Purchase" },
+        { platform: "TikTok", eventName: "PageView" },
+        { platform: "Unknown", eventName: "Ignored" },
+      ],
+    }),
+  );
+
+  assert.deepEqual(parsed.expectedPixels, {
+    Meta: "123456",
+    "Google Ads": "AW-123",
+  });
+  assert.deepEqual(parsed.expectedEvents, [
+    { platform: "Meta", eventName: "Purchase" },
+    { platform: "TikTok", eventName: "Pageview" },
+  ]);
+  assert.equal(parsed.skippedEvents, 1);
 });
 
 test("classifies observed events with missing required params", () => {

@@ -290,6 +290,40 @@
               </button>
             </div>
 
+            <section class="bulk-import-panel">
+              <div class="section-heading-row">
+                <div>
+                  <p class="eyebrow">Bulk Import</p>
+                  <h3 class="headline">Import expectations from JSON</h3>
+                </div>
+              </div>
+              <textarea
+                id="bulk-import-json"
+                class="text-input bulk-import-input"
+                spellcheck="false"
+                placeholder='Paste JSON with "expectedPixels" and "expectedEvents". Empty pixel IDs are ignored.'
+              ></textarea>
+              <div class="bulk-import-actions">
+                <button
+                  id="load-import-template-btn"
+                  class="button-pill button-outline"
+                  type="button"
+                >
+                  Load JSON Template
+                </button>
+                <button
+                  id="import-expectations-btn"
+                  class="button-pill button-outline"
+                  type="button"
+                >
+                  Import Bulk
+                </button>
+                <span id="bulk-import-status" class="caption">
+                  JSON import updates the local draft.
+                </span>
+              </div>
+            </section>
+
             <div class="button-row">
               <button id="save-expectations-btn" class="button-pill button-primary">
                 Save Expectations
