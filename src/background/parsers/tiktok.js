@@ -71,9 +71,15 @@ export function parseTikTokRequest(url, details) {
     }
   }
 
+  eventName = normalizeTikTokEventName(eventName);
+
   const TIKTOK_DIAG_EVENTS = new Set(["Unknown", "Metadata", "SubscribedButtonClick", "PerformancePing"]);
   const isDiagnostic = TIKTOK_DIAG_EVENTS.has(eventName);
 
   return { platform: "TikTok", pixelId, eventName, eventData, isDiagnostic };
+}
+
+function normalizeTikTokEventName(eventName) {
+  return eventName === "PageView" ? "Pageview" : eventName;
 }
 

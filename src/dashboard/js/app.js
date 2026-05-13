@@ -2,197 +2,418 @@ import { store } from "./store.js";
 import { PixelRenderer } from "./renderer.js";
 import { showConfirm } from "./modal.js";
 import {
-  DEFAULT_EXPECTED_EVENTS,
-  buildAuditSummary,
-  buildChecklist,
+  AUDIT_RULES,
   buildIssues,
-  buildReportHtml,
+  buildProfessionalReportHtml,
+  buildReportModel,
+  formatAuditTargetLabel,
+  getIssueFixSuggestion,
+  normalizeExpectedEvents,
 } from "./audit.js";
 import {
+  auditEvent,
+  classifyEventStatus,
   escapeHtml,
-  groupEventsBySession,
   eventsToCsv,
+  extractRichDetails,
+  formatTime,
   getPlatformMeta,
+  groupEventsBySession,
 } from "./utils.js";
 
-// --- State & DOM Elements ---
-let currentPlatform = "All"; // 'All', 'Meta', 'TikTok', 'Diagnostics'
-let searchQuery = "";
-let selectedTabId = "all";
-let isSessionView = false;
-let sortConfig = { key: "timestamp", direction: "desc" };
-let currentView = "live";
+const copySvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+const checkSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0b7f4f" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
 
-const renderer = new PixelRenderer("events-table-body", "empty-state");
-
-const searchInput = document.getElementById("global-search");
-const tabSelector = document.getElementById("tab-selector");
-const clearBtn = document.getElementById("clear-all-btn");
-const settingsBtn = document.getElementById("settings-btn");
-const sessionToggle = document.getElementById("session-view-toggle");
-const exportJsonBtn = document.getElementById("export-json-btn");
-const exportCsvBtn = document.getElementById("export-csv-btn");
-const exportReportBtn = document.getElementById("export-report-btn");
-const mobileMenuToggle = document.getElementById("mobile-menu-toggle");
-const sidebar = document.querySelector(".sidebar");
-
-const settingsModal = document.getElementById("settings-modal");
-const closeSettingsBtn = document.getElementById("close-settings-btn");
-const saveSettingsBtn = document.getElementById("save-settings-btn");
-const settingMaxEvents = document.getElementById("setting-max-events");
-const settingSessionWindow = document.getElementById("setting-session-window");
-
-const tabAll = document.getElementById("tab-all");
-const tabMeta = document.getElementById("tab-meta");
-const tabTikTok = document.getElementById("tab-tiktok");
-const tabGoogle = document.getElementById("tab-google");
-const tabDiagnostics = document.getElementById("tab-diagnostics");
-const viewLive = document.getElementById("view-live");
-const viewChecklist = document.getElementById("view-checklist");
-const viewIssues = document.getElementById("view-issues");
-const viewReport = document.getElementById("view-report");
-
-const filterBtns = [tabAll, tabMeta, tabTikTok, tabGoogle, tabDiagnostics];
-const viewBtns = [viewLive, viewChecklist, viewIssues, viewReport];
-
-const heroSection = document.getElementById("hero-section");
-const heroEyebrow = document.getElementById("hero-eyebrow");
-const heroTitle = document.getElementById("hero-title");
-const heroSubtitle = document.getElementById("hero-subtitle");
-const startAuditBtn = document.getElementById("start-audit-btn");
-const startReloadBtn = document.getElementById("start-reload-btn");
-const auditSessionStatus = document.getElementById("audit-session-status");
-const checklistList = document.getElementById("checklist-list");
-const issuesList = document.getElementById("issues-list");
-const issuesSummary = document.getElementById("issues-summary");
-const reportPreview = document.getElementById("report-preview");
-const downloadReportBtn = document.getElementById("download-report-btn");
-const saveExpectationsBtn = document.getElementById("save-expectations-btn");
-const expectedInputs = {
-  Meta: document.getElementById("expected-meta-pixel"),
-  TikTok: document.getElementById("expected-tiktok-pixel"),
-  GA4: document.getElementById("expected-ga4-pixel"),
-  "Google Ads": document.getElementById("expected-google-pixel"),
+const state = {
+  activeView: "overview",
+  searchQuery: "",
+  platformFilter: "All",
+  statusFilter: "All",
+  selectedTabId: "all",
+  isSessionView: false,
+  selectedEventId: null,
+  expectedPixels: {},
+  expectedEvents: [],
 };
-const expectedEventsInput = document.getElementById("expected-events-input");
 
-// --- UI Logic ---
+let hydrated = false;
+let draftTimer = null;
 
-function updateUI() {
-  let filteredEvents = [];
+const renderer = new PixelRenderer("events-list", "empty-state", {
+  onSelectEvent: openEventDrawer,
+});
 
-  if (selectedTabId === "all") {
-    filteredEvents = store.getAllEvents();
-  } else {
-    filteredEvents = [...(store.events[selectedTabId] || [])];
-    filteredEvents.sort((a, b) => b.timestamp - a.timestamp);
+const els = {
+  sidebar: document.querySelector(".sidebar"),
+  navButtons: [...document.querySelectorAll("[data-view]")],
+  viewPanes: [...document.querySelectorAll(".view-pane")],
+  mobileMenuToggle: document.getElementById("mobile-menu-toggle"),
+  searchInput: document.getElementById("global-search"),
+  platformFilter: document.getElementById("platform-filter"),
+  statusFilter: document.getElementById("status-filter"),
+  tabSelector: document.getElementById("tab-selector"),
+  sessionToggle: document.getElementById("session-view-toggle"),
+  startAuditBtn: document.getElementById("start-audit-btn"),
+  startReloadBtn: document.getElementById("start-reload-btn"),
+  auditSessionStatus: document.getElementById("audit-session-status"),
+  overviewDomain: document.getElementById("overview-domain"),
+  healthCard: document.getElementById("health-card"),
+  healthScoreValue: document.getElementById("health-score-value"),
+  healthScoreLabel: document.getElementById("health-score-label"),
+  summaryEvents: document.getElementById("summary-events"),
+  summaryPass: document.getElementById("summary-pass"),
+  summaryIssues: document.getElementById("summary-issues"),
+  summaryRedactions: document.getElementById("summary-redactions"),
+  qaStepper: document.getElementById("qa-stepper"),
+  overviewTimeline: document.getElementById("overview-timeline"),
+  liveTimeline: document.getElementById("live-timeline"),
+  tagsSummaryContainer: document.getElementById("tags-summary-container"),
+  tagsSummaryList: document.getElementById("tags-summary-list"),
+  expectationPresets: document.getElementById("expectation-presets"),
+  expectedPixelInputs: [...document.querySelectorAll(".expected-pixel-input")],
+  customPlatformSelect: document.getElementById("custom-platform-select"),
+  customEventInput: document.getElementById("custom-event-input"),
+  addCustomEventBtn: document.getElementById("add-custom-event-btn"),
+  saveExpectationsBtn: document.getElementById("save-expectations-btn"),
+  draftStatus: document.getElementById("draft-status"),
+  checklistList: document.getElementById("checklist-list"),
+  issuesSummary: document.getElementById("issues-summary"),
+  issuesList: document.getElementById("issues-list"),
+  reportPreview: document.getElementById("report-preview"),
+  overviewExportBtn: document.getElementById("overview-export-btn"),
+  downloadReportBtn: document.getElementById("download-report-btn"),
+  exportFilteredReportBtn: document.getElementById("export-filtered-report-btn"),
+  exportJsonBtn: document.getElementById("export-json-btn"),
+  exportCsvBtn: document.getElementById("export-csv-btn"),
+  clearAllBtn: document.getElementById("clear-all-btn"),
+  settingsBtn: document.getElementById("settings-btn"),
+  settingsModal: document.getElementById("settings-modal"),
+  closeSettingsBtn: document.getElementById("close-settings-btn"),
+  saveSettingsBtn: document.getElementById("save-settings-btn"),
+  settingMaxEvents: document.getElementById("setting-max-events"),
+  settingSessionWindow: document.getElementById("setting-session-window"),
+  clearDraftBtn: document.getElementById("clear-draft-btn"),
+  drawer: document.getElementById("event-drawer"),
+  drawerBackdrop: document.getElementById("drawer-backdrop"),
+  closeDrawerBtn: document.getElementById("close-event-drawer"),
+  drawerPlatform: document.getElementById("drawer-platform"),
+  drawerTitle: document.getElementById("drawer-title"),
+  drawerContent: document.getElementById("drawer-content"),
+};
+
+function hydrateWorkspaceState() {
+  const draft = store.workspaceDraft || {};
+  const filters = draft.filters || {};
+  state.activeView = draft.activeWorkspaceView || "overview";
+  state.searchQuery = filters.searchQuery || "";
+  state.platformFilter = filters.platformFilter || "All";
+  state.statusFilter = filters.statusFilter || "All";
+  state.selectedTabId = filters.selectedTabId || "all";
+  state.isSessionView = !!filters.isSessionView;
+  state.expectedPixels = {
+    ...(store.settings?.expectedPixels || {}),
+    ...(draft.expectedPixels || {}),
+  };
+  state.expectedEvents = normalizeExpectedEvents(
+    draft.expectedEvents?.length > 0
+      ? draft.expectedEvents
+      : store.settings?.expectedEvents?.length > 0
+        ? store.settings.expectedEvents
+        : [],
+  );
+
+  els.searchInput.value = state.searchQuery;
+  els.platformFilter.value = state.platformFilter;
+  els.statusFilter.value = state.statusFilter;
+  els.sessionToggle.checked = state.isSessionView;
+  setView(state.activeView, { render: false, persist: false });
+  hydrated = true;
+}
+
+function getActiveAuditRun() {
+  const activeRunId = store.auditState?.activeAuditRunId;
+  return activeRunId ? store.auditRuns?.[activeRunId] : null;
+}
+
+function getActiveAuditTab() {
+  const activeRunId = store.auditState?.activeAuditRunId;
+  const tabs = Object.values(store.auditState?.auditTabs || {});
+  return tabs.find((tab) => tab.auditRunId === activeRunId) || null;
+}
+
+function getEvents(options = {}) {
+  const {
+    applyPlatform = true,
+    applyStatus = true,
+    applySearch = true,
+    includeDiagnostics = false,
+  } = options;
+  let events =
+    state.selectedTabId === "all"
+      ? store.getAllEvents()
+      : [...(store.events[state.selectedTabId] || [])].sort(
+          (a, b) => b.timestamp - a.timestamp,
+        );
+
+  if (!includeDiagnostics && state.platformFilter !== "Diagnostics") {
+    events = events.filter((event) => !event.isDiagnostic);
   }
 
-  // Handle Diagnostics vs Main Flow
-  if (currentPlatform === "Diagnostics") {
-    filteredEvents = filteredEvents.filter((e) => e.isDiagnostic === true);
-  } else {
-    // Normal platforms: Hide diagnostics by default
-    filteredEvents = filteredEvents.filter((e) => !e.isDiagnostic);
-    if (currentPlatform === "Google") {
-      filteredEvents = filteredEvents.filter((e) =>
-        ["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(e.platform),
+  if (applyPlatform) {
+    if (state.platformFilter === "Diagnostics") {
+      events = events.filter((event) => event.isDiagnostic);
+    } else if (state.platformFilter === "Google") {
+      events = events.filter((event) =>
+        ["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(event.platform),
       );
-    } else if (currentPlatform !== "All") {
-      filteredEvents = filteredEvents.filter(
-        (e) => e.platform === currentPlatform,
-      );
+    } else if (state.platformFilter !== "All") {
+      events = events.filter((event) => event.platform === state.platformFilter);
     }
   }
 
-  // Apply search
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    filteredEvents = filteredEvents.filter(
-      (e) =>
-        e.eventName.toLowerCase().includes(q) ||
-        e.pixelId.toLowerCase().includes(q) ||
-        e.url.toLowerCase().includes(q),
+  if (applyStatus && state.statusFilter !== "All") {
+    events = events.filter((event) => {
+      const status = classifyEventStatus(event, auditEvent(event));
+      return status.key === state.statusFilter;
+    });
+  }
+
+  if (applySearch && state.searchQuery) {
+    const query = state.searchQuery.toLowerCase();
+    events = events.filter((event) =>
+      [event.eventName, event.pixelId, event.platform, event.url, event.source]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query)),
     );
   }
 
-  // Apply Sorting
-  filteredEvents.sort((a, b) => {
-    let aVal = a[sortConfig.key];
-    let bVal = b[sortConfig.key];
-
-    // Handle nested data if needed, but for now top-level keys
-    if (typeof aVal === "string") {
-      aVal = aVal.toLowerCase();
-      bVal = bVal.toLowerCase();
-    }
-
-    if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
-    if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
-    return 0;
-  });
-
-  renderAuditSessionStatus();
-  renderTagsSummary(filteredEvents);
-  renderWorkflowPanels(filteredEvents);
-
-  if (isSessionView) {
-    const windowMs = store.settings?.sessionWindow || 1800000;
-    const sessions = groupEventsBySession(filteredEvents, windowMs);
-    renderer.render(sessions, true);
-  } else {
-    renderer.render(filteredEvents, false);
-  }
+  return events.sort((a, b) => b.timestamp - a.timestamp);
 }
 
-function renderAuditSessionStatus() {
-  const activeRunId = store.auditState?.activeAuditRunId;
-  const auditRun = activeRunId ? store.auditRuns?.[activeRunId] : null;
-  const tabs = store.auditState?.auditTabs || {};
-  const activeTab = Object.values(tabs).find(
-    (tab) => tab.auditRunId === activeRunId,
-  );
+function renderAll() {
+  if (!hydrated) return;
+  const auditEvents = getEvents({
+    applyPlatform: false,
+    applyStatus: false,
+    applySearch: false,
+    includeDiagnostics: false,
+  });
+  const visibleEvents = getEvents();
+  const auditRun = getActiveAuditRun();
+  const reportModel = buildReportModel({
+    events: auditEvents,
+    auditRun,
+    expectedEvents: state.expectedEvents,
+    expectedPixels: state.expectedPixels,
+  });
 
-  if (!auditRun && !activeTab) {
-    auditSessionStatus.textContent =
-      "No audit session is active. Start from a target website tab.";
+  renderSession(reportModel);
+  renderOverview(reportModel);
+  renderTimeline(els.overviewTimeline, reportModel.timeline);
+  renderTimeline(els.liveTimeline, reportModel.timeline);
+  renderTagsSummary(visibleEvents);
+  renderExpectations();
+  renderChecklist(reportModel.checklist);
+  renderIssues(reportModel);
+  renderReportPreview(reportModel);
+  renderLiveStream(visibleEvents);
+  renderSelectedDrawer();
+}
+
+function renderSession(reportModel) {
+  const auditRun = getActiveAuditRun();
+  const auditTab = getActiveAuditTab();
+  const auditTarget = formatAuditTargetLabel(
+    auditRun?.url || auditTab?.url,
+    auditRun?.domain || auditTab?.hostname || "No active audit",
+  );
+  const reloadNote = auditTab?.startedAfterLoad
+    ? "Started after page load. Use Start + Reload to catch first-page events."
+    : "Ready for controlled tracking QA.";
+
+  els.overviewDomain.textContent = auditTarget;
+  els.overviewDomain.title = auditRun?.url || auditTab?.url || auditTarget;
+  els.auditSessionStatus.textContent = auditRun
+    ? `${reloadNote} ${reportModel.summary.total} event(s) captured.`
+    : "Open a target site and start a controlled audit window.";
+}
+
+function renderOverview(reportModel) {
+  const passCount = reportModel.checklist.filter((item) => item.status === "valid").length;
+  const health = reportModel.health;
+  els.healthScoreValue.textContent = `${health.score}%`;
+  els.healthScoreLabel.textContent = health.label;
+  els.healthScoreLabel.className = `status-pill status-${health.tone}`;
+  els.healthCard.className = `color-block health-card ${health.tone === "healthy" ? "bg-mint" : health.tone === "review" ? "bg-cream" : "bg-pink"}`;
+
+  els.summaryEvents.textContent = String(reportModel.summary.total);
+  els.summaryPass.textContent = `${passCount} / ${reportModel.checklist.length}`;
+  els.summaryIssues.textContent = String(reportModel.issues.length);
+  els.summaryRedactions.textContent = String(reportModel.summary.redactions);
+
+  const steps = [
+    {
+      label: "Setup Expectations",
+      done: state.expectedEvents.length > 0,
+      detail: `${state.expectedEvents.length} expected event(s) selected`,
+    },
+    {
+      label: "Start Audit",
+      done: !!getActiveAuditRun(),
+      detail: getActiveAuditRun() ? "Audit window active" : "No audit window",
+    },
+    {
+      label: "Trigger Funnel",
+      done: reportModel.summary.total > 0,
+      detail: `${reportModel.summary.total} event(s) observed`,
+    },
+    {
+      label: "Fix Issues",
+      done: reportModel.summary.total > 0 && reportModel.issues.length === 0,
+      detail: reportModel.issues.length
+        ? `${reportModel.issues.length} issue(s) need review`
+        : "No current blockers",
+    },
+    {
+      label: "Export Report",
+      done: reportModel.summary.total > 0,
+      detail: "HTML, JSON, and CSV ready",
+    },
+  ];
+
+  els.qaStepper.innerHTML = steps
+    .map(
+      (step, index) => `
+        <div class="step-item ${step.done ? "done" : ""}">
+          <span class="step-index">${index + 1}</span>
+          <strong>${escapeHtml(step.label)}</strong>
+          <p class="body-sm">${escapeHtml(step.detail)}</p>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function renderTimeline(container, timeline) {
+  container.innerHTML = timeline
+    .map((step) => {
+      const label =
+        step.status === "missing"
+          ? "Missing"
+          : step.status === "out_of_order"
+            ? "Out of Order"
+            : "Observed";
+      const duplicate = step.duplicateCount
+        ? `<span class="status-pill status-duplicate">Dup ${step.duplicateCount}</span>`
+        : "";
+      const tag = step.platform === "Any" ? "Funnel" : step.platform;
+      return `
+        <button class="timeline-step ${escapeHtml(step.status)}" data-event-id="${escapeHtml(step.eventId || "")}" data-event-name="${escapeHtml(step.eventName)}" type="button">
+          <span class="eyebrow">${escapeHtml(tag)}</span>
+          <span class="timeline-title">${escapeHtml(step.label)}</span>
+          <span class="status-pill status-${step.status}">${escapeHtml(label)}</span>
+          ${duplicate}
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function renderTagsSummary(events) {
+  if (!els.tagsSummaryContainer || !els.tagsSummaryList) return;
+  els.tagsSummaryList.innerHTML = "";
+
+  if (state.platformFilter === "Diagnostics" || events.length === 0) {
+    els.tagsSummaryContainer.style.display = "none";
     return;
   }
 
-  const domain = auditRun?.domain || activeTab?.hostname || "current tab";
-  const reloadNote = activeTab?.startedAfterLoad
-    ? " Started after page load; use Start + Reload for first-page events."
-    : "";
-  auditSessionStatus.textContent = `Auditing ${domain}.${reloadNote}`;
+  els.tagsSummaryContainer.style.display = "block";
+  const tagsMap = new Map();
+  events.forEach((event) => {
+    const key = `${event.platform}:${event.pixelId}`;
+    if (!tagsMap.has(key)) {
+      tagsMap.set(key, {
+        platform: event.platform,
+        pixelId: event.pixelId || "Unknown",
+        count: 0,
+      });
+    }
+    tagsMap.get(key).count++;
+  });
+
+  tagsMap.forEach((info) => {
+    const meta = getPlatformMeta(info.platform);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tag-card";
+    button.innerHTML = `
+      ${meta.icon ? `<img src="${escapeHtml(meta.icon)}" width="18" height="18" aria-hidden="true" />` : ""}
+      <span>${escapeHtml(info.platform)}</span>
+      <span class="caption">${escapeHtml(info.pixelId)} (${info.count})</span>
+    `;
+    button.addEventListener("click", () => {
+      state.searchQuery = info.pixelId;
+      els.searchInput.value = info.pixelId;
+      scheduleDraftSave();
+      renderAll();
+    });
+    els.tagsSummaryList.appendChild(button);
+  });
 }
 
-function renderWorkflowPanels(events) {
-  const expectedPixels = store.settings?.expectedPixels || {};
-  const expectedEvents = store.settings?.expectedEvents || DEFAULT_EXPECTED_EVENTS;
-  const activeRunId = store.auditState?.activeAuditRunId;
-  const auditRun = activeRunId ? store.auditRuns?.[activeRunId] : null;
-
-  Object.entries(expectedInputs).forEach(([platform, input]) => {
-    if (input && document.activeElement !== input) {
-      input.value = expectedPixels[platform] || "";
+function renderExpectations() {
+  els.expectedPixelInputs.forEach((input) => {
+    if (document.activeElement !== input) {
+      input.value = state.expectedPixels[input.dataset.platform] || "";
     }
   });
-  if (expectedEventsInput && document.activeElement !== expectedEventsInput) {
-    expectedEventsInput.value = expectedEvents
-      .map((event) => `${event.platform}:${event.eventName}`)
-      .join("\n");
-  }
 
-  renderChecklist(events, expectedEvents, expectedPixels);
-  renderIssues(events, expectedEvents, expectedPixels);
-  renderReportPreview(events, auditRun, expectedEvents, expectedPixels);
+  const expectedKeys = new Set(state.expectedEvents.map(expectedKey));
+  const baseKeys = new Set(AUDIT_RULES.map((rule) => expectedKey(rule)));
+  const platforms = ["Meta", "TikTok", "GA4", "Google Ads", "Floodlight"];
+  const customEvents = state.expectedEvents.filter(
+    (event) => !baseKeys.has(expectedKey(event)),
+  );
+
+  els.expectationPresets.innerHTML = platforms
+    .map((platform) => {
+      const rules = AUDIT_RULES.filter((rule) => rule.platform === platform).map(
+        (rule) => ({ platform: rule.platform, eventName: rule.eventName }),
+      );
+      const custom = customEvents.filter((event) => event.platform === platform);
+      const rows = [...rules, ...custom]
+        .map((event) => {
+          const key = expectedKey(event);
+          const checked = expectedKeys.has(key);
+          return `
+            <label class="check-row body-sm">
+              <input
+                class="expected-event-checkbox"
+                type="checkbox"
+                data-platform="${escapeHtml(event.platform)}"
+                data-event-name="${escapeHtml(event.eventName)}"
+                ${checked ? "checked" : ""}
+              />
+              <span>${escapeHtml(event.eventName)}</span>
+            </label>
+          `;
+        })
+        .join("");
+
+      return `
+        <section class="preset-platform">
+          <p class="eyebrow">${escapeHtml(platform)}</p>
+          <div class="preset-list">${rows}</div>
+        </section>
+      `;
+    })
+    .join("");
 }
 
-function renderChecklist(events, expectedEvents, expectedPixels) {
-  const checklist = buildChecklist(events, expectedEvents, expectedPixels);
-  checklistList.innerHTML = checklist
+function renderChecklist(checklist) {
+  els.checklistList.innerHTML = checklist
     .map((item) => {
-      const statusLabel = item.status.replace("_", " ");
       const issueText =
         item.issues.length > 0
           ? item.issues.map(escapeHtml).join("<br />")
@@ -203,7 +424,7 @@ function renderChecklist(events, expectedEvents, expectedPixels) {
         <div class="qa-row">
           <div class="platform-label">${platformIcon(item.platform)}<span>${escapeHtml(item.platform)}</span></div>
           <strong class="body-sm">${escapeHtml(item.eventName)}</strong>
-          <span class="status-pill status-${item.status}">${escapeHtml(statusLabel)}</span>
+          <span class="status-pill status-${item.status}">${escapeHtml(item.status.replace("_", " "))}</span>
           <span class="body-sm">${issueText}</span>
         </div>
       `;
@@ -211,82 +432,354 @@ function renderChecklist(events, expectedEvents, expectedPixels) {
     .join("");
 }
 
-function renderIssues(events, expectedEvents, expectedPixels) {
-  const issues = buildIssues(events, expectedEvents, expectedPixels);
-  const summary = buildAuditSummary(events);
-  issuesSummary.className = `qa-section color-block ${
-    issues.length > 0 ? "bg-tiktok" : "bg-mint"
+function renderIssues(reportModel) {
+  const issues = reportModel.issues;
+  els.issuesSummary.className = `qa-section color-block ${
+    issues.length > 0 ? "bg-pink" : "bg-mint"
   }`;
-  issuesSummary.innerHTML = `
+  els.issuesSummary.innerHTML = `
     <p class="eyebrow">Issues</p>
-    <h3 class="headline">${issues.length > 0 ? "Warnings that need attention before launch." : "No blocking issues found so far."}</h3>
-    <p class="body-lg">${summary.total} events observed, ${summary.duplicates} duplicate warning(s), ${summary.redactions} privacy redaction(s).</p>
+    <h2 class="headline">${issues.length > 0 ? "Fix these before campaign spend starts." : "No blocking issues found so far."}</h2>
+    <p class="body-lg">${reportModel.summary.total} event(s), ${reportModel.health.score}% Tracking Health, ${reportModel.summary.redactions} privacy redaction(s).</p>
   `;
 
   if (issues.length === 0) {
-    issuesList.innerHTML = `
-      <div class="qa-row compact">
+    els.issuesList.innerHTML = `
+      <div class="issue-row">
         <span class="status-pill status-valid">valid</span>
-        <strong class="body-sm">Audit clean</strong>
-        <span class="body-sm">No warnings detected for the current filters.</span>
-        <span class="caption">Keep triggering the expected funnel steps.</span>
+        <strong>Audit clean</strong>
+        <span class="body-sm">No warnings detected for the current audit.</span>
+        <span class="body-sm">Keep triggering the remaining funnel steps.</span>
       </div>
     `;
     return;
   }
 
-  issuesList.innerHTML = issues
+  els.issuesList.innerHTML = issues
     .map(
       (issue) => `
-        <div class="qa-row compact">
+        <button class="issue-row" type="button" data-event-id="${escapeHtml(issue.eventId || "")}">
           <span class="status-pill status-${issue.severity === "error" ? "error" : "warning"}">${escapeHtml(issue.severity)}</span>
           <div class="platform-label">${platformIcon(issue.platform)}<span>${escapeHtml(issue.platform)}</span></div>
-          <strong class="body-sm">${escapeHtml(issue.eventName)}</strong>
-          <span class="body-sm">${escapeHtml(issue.message)}</span>
-        </div>
+          <div>
+            <strong>${escapeHtml(issue.eventName)}</strong>
+            <p class="body-sm">${escapeHtml(issue.message)}</p>
+          </div>
+          <div class="issue-fix">
+            <span class="caption">Suggested Fix</span>
+            <span class="body-sm">${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</span>
+          </div>
+        </button>
       `,
     )
     .join("");
 }
 
-function renderReportPreview(events, auditRun, expectedEvents, expectedPixels) {
-  const summary = buildAuditSummary(events);
-  const issues = buildIssues(events, expectedEvents, expectedPixels);
-  const platforms = [...new Set(events.map((event) => event.platform))];
-  const pixels = [...new Set(events.map((event) => event.pixelId).filter(Boolean))];
-  const duplicateWarnings = issues.filter((issue) =>
-    issue.message.includes("Duplicate firing"),
-  ).length;
-  const missingParamIssues = issues.filter((issue) =>
-    issue.message.includes("Missing required parameter"),
-  ).length;
-
-  reportPreview.innerHTML = `
-    <div class="qa-row compact">
+function renderReportPreview(reportModel) {
+  const passCount = reportModel.checklist.filter((item) => item.status === "valid").length;
+  const platformText =
+    reportModel.platformBreakdown.map((item) => item.platform).join(", ") || "None";
+  els.reportPreview.innerHTML = `
+    <div class="report-row">
+      <span class="caption">Health Score</span>
+      <strong>${reportModel.health.score}% ${escapeHtml(reportModel.health.label)}</strong>
       <span class="caption">Domain</span>
-      <strong class="body-sm">${escapeHtml(auditRun?.domain || "No active audit")}</strong>
-      <span class="caption">Events</span>
-      <strong class="body-sm">${summary.total}</strong>
+      <strong>${escapeHtml(reportModel.auditTarget?.label || "Not available")}</strong>
     </div>
-    <div class="qa-row compact">
+    <div class="report-row">
       <span class="caption">Platforms</span>
-      <strong class="body-sm">${escapeHtml(platforms.join(", ") || "None")}</strong>
-      <span class="caption">Pixel IDs</span>
-      <strong class="body-sm">${escapeHtml(pixels.join(", ") || "None")}</strong>
+      <strong>${escapeHtml(platformText)}</strong>
+      <span class="caption">Checklist</span>
+      <strong>${passCount} / ${reportModel.checklist.length} passed</strong>
     </div>
-    <div class="qa-row compact">
+    <div class="report-row">
       <span class="caption">Issues</span>
-      <strong class="body-sm">${issues.length}</strong>
-      <span class="caption">Redactions</span>
-      <strong class="body-sm">${summary.redactions}</strong>
-    </div>
-    <div class="qa-row compact">
-      <span class="caption">Duplicates</span>
-      <strong class="body-sm">${duplicateWarnings}</strong>
-      <span class="caption">Missing Params</span>
-      <strong class="body-sm">${missingParamIssues}</strong>
+      <strong>${reportModel.issues.length}</strong>
+      <span class="caption">Privacy Footer</span>
+      <strong>Local-only included</strong>
     </div>
   `;
+}
+
+function renderLiveStream(visibleEvents) {
+  renderer.setSelectedEvent(state.selectedEventId);
+  if (state.isSessionView) {
+    const sessions = groupEventsBySession(
+      visibleEvents,
+      store.settings?.sessionWindow || 1800000,
+    );
+    renderer.render(sessions, true);
+  } else {
+    renderer.render(visibleEvents, false);
+  }
+}
+
+function renderSelectedDrawer() {
+  if (!state.selectedEventId || els.drawer.hidden) return;
+  const event = findEventById(state.selectedEventId);
+  if (!event) {
+    closeEventDrawer();
+    return;
+  }
+  renderEventDrawer(event);
+}
+
+function renderEventDrawer(event) {
+  const warnings = auditEvent(event);
+  const issues = buildIssues([event], [], state.expectedPixels).filter(
+    (issue) => !issue.eventId || issue.eventId === event.id,
+  );
+  const status = classifyEventStatus(event, warnings);
+  const richDetails = extractRichDetails(event.eventData || {}, event.platform);
+  const payload = JSON.stringify(event.eventData || {}, null, 2);
+
+  els.drawerPlatform.textContent = event.platform;
+  els.drawerTitle.textContent = event.eventName;
+  els.drawerContent.innerHTML = `
+    <div class="drawer-block bg-cream">
+      <span class="status-pill status-${status.key}">${escapeHtml(status.label)}</span>
+      <p class="body-sm">${escapeHtml(event.source || "network")} / ${escapeHtml(event.method || "GET")} / ${escapeHtml(formatTime(event.timestamp))}</p>
+    </div>
+    <div class="drawer-block">
+      <p class="eyebrow">Quick Fix</p>
+      ${
+        issues.length
+          ? issues
+              .map(
+                (issue) => `
+                  <p class="body-sm"><strong>${escapeHtml(issue.message)}</strong></p>
+                  <p class="body-sm">${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</p>
+                `,
+              )
+              .join("")
+          : `<p class="body-sm">No issue-specific fix needed for this event.</p>`
+      }
+    </div>
+    <div class="drawer-block">
+      <p class="eyebrow">Key Parameters</p>
+      <div class="drawer-grid">
+        ${detailItem("Pixel ID", event.pixelId)}
+        ${detailItem("Page URL", event.url)}
+        ${Object.entries(richDetails)
+          .map(([key, value]) => detailItem(key, value))
+          .join("")}
+      </div>
+    </div>
+    <div class="drawer-block">
+      <div class="section-heading-row">
+        <p class="eyebrow">Raw Payload</p>
+        <div class="hero-actions">
+          <button id="drawer-copy-raw" class="button-pill button-outline" data-copy="${escapeHtml(payload)}">Copy JSON</button>
+          <button id="drawer-toggle-raw" class="button-pill button-outline">Show Payload</button>
+        </div>
+      </div>
+      <div id="drawer-raw-payload" class="code-block" hidden>
+        <pre>${escapeHtml(payload)}</pre>
+      </div>
+    </div>
+  `;
+  attachDrawerActions();
+}
+
+function detailItem(label, value) {
+  const safeValue = value === undefined || value === null ? "Not available" : String(value);
+  return `
+    <div class="detail-group">
+      <div class="detail-header-row">
+        <span class="caption">${escapeHtml(label)}</span>
+        <button class="copy-icon-btn" data-copy="${escapeHtml(safeValue)}" title="Copy ${escapeHtml(label)}">${copySvg}</button>
+      </div>
+      <div class="detail-value">${escapeHtml(safeValue)}</div>
+    </div>
+  `;
+}
+
+function attachDrawerActions() {
+  els.drawerContent.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await navigator.clipboard.writeText(button.dataset.copy || "");
+      const original = button.innerHTML;
+      button.innerHTML = checkSvg;
+      setTimeout(() => {
+        button.innerHTML = original;
+      }, 1200);
+    });
+  });
+
+  const toggle = els.drawerContent.querySelector("#drawer-toggle-raw");
+  const raw = els.drawerContent.querySelector("#drawer-raw-payload");
+  if (toggle && raw) {
+    toggle.addEventListener("click", () => {
+      raw.hidden = !raw.hidden;
+      toggle.textContent = raw.hidden ? "Show Payload" : "Hide Payload";
+    });
+  }
+}
+
+function openEventDrawer(eventId) {
+  const event = findEventById(eventId);
+  if (!event) return;
+  state.selectedEventId = eventId;
+  renderer.setSelectedEvent(eventId);
+  els.drawer.hidden = false;
+  els.drawerBackdrop.hidden = false;
+  renderEventDrawer(event);
+}
+
+function closeEventDrawer() {
+  state.selectedEventId = null;
+  els.drawer.hidden = true;
+  els.drawerBackdrop.hidden = true;
+  renderer.setSelectedEvent(null);
+  renderAll();
+}
+
+function findEventById(eventId) {
+  return store.getAllEvents().find((event) => event.id === eventId);
+}
+
+function setView(view, options = {}) {
+  const { render = true, persist = true } = options;
+  state.activeView = view;
+  els.navButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
+  els.viewPanes.forEach((pane) => {
+    pane.classList.toggle("active", pane.id === `${view}-view-pane`);
+  });
+  if (persist) scheduleDraftSave();
+  if (render) renderAll();
+  els.sidebar.classList.remove("open");
+}
+
+function updateTabSelector(eventsMap) {
+  const current = state.selectedTabId;
+  els.tabSelector.innerHTML = '<option value="all">All Browser Tabs</option>';
+  Object.keys(eventsMap)
+    .filter((id) => id !== "background_worker")
+    .forEach((id) => {
+      const tabEvents = eventsMap[id] || [];
+      const latestUrl =
+        tabEvents.length > 0 ? safeHostname(tabEvents[0].url) : `Tab ${id}`;
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = `${latestUrl} (ID: ${id})`;
+      els.tabSelector.appendChild(option);
+    });
+
+  els.tabSelector.value =
+    current === "all" || eventsMap[current] ? current : "all";
+  state.selectedTabId = els.tabSelector.value;
+}
+
+function exportData(format, events = store.getAllEvents()) {
+  if (events.length === 0) {
+    alert("No data to export.");
+    return;
+  }
+  const date = new Date().toISOString().split("T")[0];
+  const content =
+    format === "json" ? JSON.stringify(events, null, 2) : eventsToCsv(events);
+  downloadContent(
+    content,
+    `omnisignal-events-${date}.${format}`,
+    format === "json" ? "application/json" : "text/csv",
+  );
+}
+
+function exportReport({ filtered = false } = {}) {
+  const auditRun = getActiveAuditRun();
+  const events = filtered
+    ? getEvents({ includeDiagnostics: true })
+    : getEvents({
+        applyPlatform: false,
+        applySearch: false,
+        applyStatus: false,
+        includeDiagnostics: true,
+      });
+  const reportModel = buildReportModel({
+    events,
+    auditRun,
+    expectedEvents: state.expectedEvents,
+    expectedPixels: state.expectedPixels,
+    filters: filtered
+      ? {
+          platform: state.platformFilter,
+          status: state.statusFilter,
+          search: state.searchQuery,
+          tab: state.selectedTabId,
+        }
+      : null,
+  });
+  const html = buildProfessionalReportHtml(reportModel);
+  const domain = slugify(
+    formatAuditTargetLabel(auditRun?.url, auditRun?.domain || "not-available"),
+  );
+  const date = new Date().toISOString().split("T")[0];
+  downloadContent(
+    html,
+    `omnisignal-audit-${domain}-${date}.html`,
+    "text/html",
+  );
+}
+
+function downloadContent(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function scheduleDraftSave() {
+  if (!hydrated) return;
+  if (els.draftStatus) els.draftStatus.textContent = "Saving draft...";
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(async () => {
+    await store.saveWorkspaceDraft({
+      activeWorkspaceView: state.activeView,
+      filters: {
+        searchQuery: state.searchQuery,
+        platformFilter: state.platformFilter,
+        statusFilter: state.statusFilter,
+        selectedTabId: state.selectedTabId,
+        isSessionView: state.isSessionView,
+      },
+      expectedPixels: state.expectedPixels,
+      expectedEvents: state.expectedEvents,
+    });
+    if (els.draftStatus) els.draftStatus.textContent = "Draft autosaved locally";
+  }, 300);
+}
+
+function syncExpectedPixelsFromInputs() {
+  const pixels = {};
+  els.expectedPixelInputs.forEach((input) => {
+    if (input.value.trim()) pixels[input.dataset.platform] = input.value.trim();
+  });
+  state.expectedPixels = pixels;
+}
+
+function addExpectedEvent(platform, eventName) {
+  const [next] = normalizeExpectedEvents([{ platform, eventName }]);
+  if (!state.expectedEvents.some((event) => expectedKey(event) === expectedKey(next))) {
+    state.expectedEvents = [...state.expectedEvents, next];
+  }
+}
+
+function removeExpectedEvent(platform, eventName) {
+  const [target] = normalizeExpectedEvents([{ platform, eventName }]);
+  state.expectedEvents = state.expectedEvents.filter(
+    (event) => expectedKey(event) !== expectedKey(target),
+  );
+}
+
+function expectedKey(event) {
+  const [normalized] = normalizeExpectedEvents([event]);
+  return `${normalized.platform}::${normalized.eventName}`;
 }
 
 function platformIcon(platform) {
@@ -296,86 +789,7 @@ function platformIcon(platform) {
     : "";
 }
 
-function exportData(format) {
-  const events = store.getAllEvents();
-  if (events.length === 0) {
-    alert("No data to export!");
-    return;
-  }
-
-  let content = "";
-  let filename = `pixel-events-${new Date().toISOString().split("T")[0]}`;
-  let mimeType = "";
-
-  if (format === "json") {
-    content = JSON.stringify(events, null, 2);
-    filename += ".json";
-    mimeType = "application/json";
-  } else {
-    content = eventsToCsv(events);
-    filename += ".csv";
-    mimeType = "text/csv";
-  }
-
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function exportReport() {
-  const events = store.getAllEvents();
-  const activeRunId = store.auditState?.activeAuditRunId;
-  const auditRun = activeRunId ? store.auditRuns?.[activeRunId] : null;
-  const expectedPixels = store.settings?.expectedPixels || {};
-  const expectedEvents = store.settings?.expectedEvents || DEFAULT_EXPECTED_EVENTS;
-
-  const content = buildReportHtml({
-    events,
-    auditRun,
-    expectedEvents,
-    expectedPixels,
-  });
-  const filename = `omnisignal-report-${new Date().toISOString().split("T")[0]}.html`;
-  const blob = new Blob([content], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function updateTabSelector(eventsMap) {
-  const currentVal = tabSelector.value;
-  tabSelector.innerHTML = '<option value="all">All Browser Tabs</option>';
-
-  const tabIds = Object.keys(eventsMap);
-  tabIds.forEach((id) => {
-    if (id === "background_worker") return;
-
-    const tabEvents = eventsMap[id];
-    const latestUrl =
-      tabEvents.length > 0 ? getHostname(tabEvents[0].url) : `Tab ${id}`;
-
-    const option = document.createElement("option");
-    option.value = id;
-    option.textContent = `${latestUrl} (ID: ${id})`;
-    tabSelector.appendChild(option);
-  });
-
-  if (tabIds.includes(currentVal)) {
-    tabSelector.value = currentVal;
-  } else {
-    tabSelector.value = "all";
-    selectedTabId = "all";
-  }
-}
-
-function getHostname(url) {
+function safeHostname(url) {
   try {
     return new URL(url).hostname;
   } catch (_e) {
@@ -383,255 +797,203 @@ function getHostname(url) {
   }
 }
 
-function setPlatform(platform, btn) {
-  currentPlatform = platform;
-  filterBtns.forEach((b) => b.classList.remove("active"));
-  btn.classList.add("active");
-
-  const meta = getPlatformMeta(platform);
-  if (meta && heroSection) {
-    heroEyebrow.textContent = meta.label;
-    heroTitle.textContent = meta.heroTitle;
-    heroSubtitle.textContent = meta.description;
-
-    heroSection.className = `hero color-block ${meta.bgClass}`;
-  }
-
-  updateUI();
+function slugify(value) {
+  return String(value || "not-available")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
 }
 
-function setView(view, btn) {
-  currentView = view;
-  viewBtns.forEach((b) => b.classList.remove("active"));
-  btn.classList.add("active");
+els.navButtons.forEach((button) => {
+  button.addEventListener("click", () => setView(button.dataset.view));
+});
 
-  document.querySelectorAll(".view-pane").forEach((pane) => {
-    pane.classList.remove("active");
-  });
-  document.getElementById(`${view}-view-pane`)?.classList.add("active");
-  updateUI();
-}
+els.mobileMenuToggle.addEventListener("click", () => {
+  els.sidebar.classList.toggle("open");
+});
 
-// --- Tag Assistant Summary Logic ---
-function renderTagsSummary(events) {
-  const container = document.getElementById("tags-summary-container");
-  const list = document.getElementById("tags-summary-list");
-  if (!container || !list) return;
+els.searchInput.addEventListener("input", (event) => {
+  state.searchQuery = event.target.value;
+  scheduleDraftSave();
+  renderAll();
+});
 
-  list.innerHTML = "";
+els.platformFilter.addEventListener("change", (event) => {
+  state.platformFilter = event.target.value;
+  scheduleDraftSave();
+  renderAll();
+});
 
-  if (currentPlatform === "Diagnostics" || events.length === 0) {
-    container.style.display = "none";
-    return;
-  }
+els.statusFilter.addEventListener("change", (event) => {
+  state.statusFilter = event.target.value;
+  scheduleDraftSave();
+  renderAll();
+});
 
-  container.style.display = "block";
+els.tabSelector.addEventListener("change", (event) => {
+  state.selectedTabId = event.target.value;
+  scheduleDraftSave();
+  renderAll();
+});
 
-  const tagsMap = new Map();
-  events.forEach((e) => {
-    if (!tagsMap.has(e.pixelId)) {
-      tagsMap.set(e.pixelId, { platform: e.platform, count: 0 });
-    }
-    tagsMap.get(e.pixelId).count++;
-  });
+els.sessionToggle.addEventListener("change", (event) => {
+  state.isSessionView = event.target.checked;
+  scheduleDraftSave();
+  renderAll();
+});
 
-  tagsMap.forEach((info, pixelId) => {
-    const meta = getPlatformMeta(info.platform);
-    const card = document.createElement("div");
-    card.className = "tag-card";
-    card.innerHTML = `
-      <img src="${escapeHtml(meta.icon)}" width="24" height="24" />
-      <div>
-        <div class="tag-platform">${escapeHtml(info.platform)}</div>
-        <div class="caption">${escapeHtml(pixelId)} <span class="tag-count">(${info.count})</span></div>
-      </div>
-    `;
-    card.addEventListener("click", () => {
-      const tagEvents = events.filter((e) => e.pixelId === pixelId);
-      if (isSessionView) {
-        const windowMs = store.settings?.sessionWindow || 1800000;
-        renderer.render(groupEventsBySession(tagEvents, windowMs), true);
-      } else {
-        renderer.render(tagEvents, false);
-      }
-    });
+els.startAuditBtn.addEventListener("click", () => startAudit(false));
+els.startReloadBtn.addEventListener("click", () => startAudit(true));
 
-    list.appendChild(card);
-  });
-}
-
-// --- Event Listeners ---
-
-tabAll.addEventListener("click", () => setPlatform("All", tabAll));
-tabMeta.addEventListener("click", () => setPlatform("Meta", tabMeta));
-tabTikTok.addEventListener("click", () => setPlatform("TikTok", tabTikTok));
-tabGoogle.addEventListener("click", () => setPlatform("Google", tabGoogle));
-tabDiagnostics.addEventListener("click", () =>
-  setPlatform("Diagnostics", tabDiagnostics),
-);
-
-viewLive.addEventListener("click", () => setView("live", viewLive));
-viewChecklist.addEventListener("click", () =>
-  setView("checklist", viewChecklist),
-);
-viewIssues.addEventListener("click", () => setView("issues", viewIssues));
-viewReport.addEventListener("click", () => setView("report", viewReport));
-
-startAuditBtn.addEventListener("click", async () => {
-  startAuditBtn.textContent = "Starting...";
-  const result = await store.startAudit({ reload: false });
-  startAuditBtn.textContent = "Start Audit";
+async function startAudit(reload) {
+  const button = reload ? els.startReloadBtn : els.startAuditBtn;
+  const original = button.textContent;
+  button.textContent = reload ? "Reloading..." : "Starting...";
+  const result = await store.startAudit({ reload });
+  button.textContent = original;
   if (!result?.ok) {
-    auditSessionStatus.textContent =
+    els.auditSessionStatus.textContent =
       result?.error || "Open a website tab, then start audit again.";
   }
-  updateUI();
+  renderAll();
+}
+
+els.overviewTimeline.addEventListener("click", handleTimelineClick);
+els.liveTimeline.addEventListener("click", handleTimelineClick);
+
+function handleTimelineClick(event) {
+  const step = event.target.closest(".timeline-step");
+  if (!step) return;
+  const eventId = step.dataset.eventId;
+  state.searchQuery = step.dataset.eventName || "";
+  els.searchInput.value = state.searchQuery;
+  setView("live");
+  if (eventId) openEventDrawer(eventId);
+}
+
+els.expectationPresets.addEventListener("change", (event) => {
+  if (!event.target.classList.contains("expected-event-checkbox")) return;
+  const platform = event.target.dataset.platform;
+  const eventName = event.target.dataset.eventName;
+  if (event.target.checked) addExpectedEvent(platform, eventName);
+  else removeExpectedEvent(platform, eventName);
+  scheduleDraftSave();
+  renderAll();
 });
 
-startReloadBtn.addEventListener("click", async () => {
-  startReloadBtn.textContent = "Reloading...";
-  const result = await store.startAudit({ reload: true });
-  startReloadBtn.textContent = "Start + Reload";
-  if (!result?.ok) {
-    auditSessionStatus.textContent =
-      result?.error || "Open a website tab, then start audit again.";
-  }
-  updateUI();
-});
-
-searchInput.addEventListener("input", (e) => {
-  searchQuery = e.target.value;
-  updateUI();
-});
-
-tabSelector.addEventListener("change", (e) => {
-  selectedTabId = e.target.value;
-  updateUI();
-});
-
-sessionToggle.addEventListener("change", (e) => {
-  isSessionView = e.target.checked;
-  updateUI();
-});
-
-document.querySelectorAll("th.sortable").forEach((th) => {
-  th.addEventListener("click", () => {
-    const key = th.dataset.sort;
-    if (sortConfig.key === key) {
-      sortConfig.direction = sortConfig.direction === "asc" ? "desc" : "asc";
-    } else {
-      sortConfig.key = key;
-      sortConfig.direction = "asc";
-    }
-
-    // Update UI active state
-    document.querySelectorAll("th.sortable").forEach((el) => {
-      el.classList.remove("active-sort");
-      // Reset icon to default
-      el.querySelector(".sort-icon").innerHTML =
-        `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg>`;
-    });
-
-    th.classList.add("active-sort");
-    const icon = th.querySelector(".sort-icon");
-    if (sortConfig.direction === "asc") {
-      icon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m18 15-6-6-6 6"/></svg>`;
-    } else {
-      icon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>`;
-    }
-
-    updateUI();
+els.expectedPixelInputs.forEach((input) => {
+  input.addEventListener("input", () => {
+    syncExpectedPixelsFromInputs();
+    scheduleDraftSave();
   });
 });
 
-exportJsonBtn.addEventListener("click", () => exportData("json"));
-exportCsvBtn.addEventListener("click", () => exportData("csv"));
-exportReportBtn.addEventListener("click", exportReport);
-downloadReportBtn.addEventListener("click", exportReport);
+els.addCustomEventBtn.addEventListener("click", () => {
+  const eventName = els.customEventInput.value.trim();
+  if (!eventName) return;
+  addExpectedEvent(els.customPlatformSelect.value, eventName);
+  els.customEventInput.value = "";
+  scheduleDraftSave();
+  renderAll();
+});
 
-saveExpectationsBtn.addEventListener("click", async () => {
-  const expectedPixels = {};
-  Object.entries(expectedInputs).forEach(([platform, input]) => {
-    if (input.value.trim()) expectedPixels[platform] = input.value.trim();
-  });
-  const expectedEvents = parseExpectedEvents(expectedEventsInput.value);
+els.saveExpectationsBtn.addEventListener("click", async () => {
+  syncExpectedPixelsFromInputs();
   await store.saveSettings({
-    expectedPixels,
-    expectedEvents,
+    expectedPixels: state.expectedPixels,
+    expectedEvents: state.expectedEvents,
   });
-  await store.updateActiveAuditRun({ expectedPixels, expectedEvents });
-  updateUI();
+  await store.updateActiveAuditRun({
+    expectedPixels: state.expectedPixels,
+    expectedEvents: state.expectedEvents,
+  });
+  await store.saveWorkspaceDraft({
+    expectedPixels: state.expectedPixels,
+    expectedEvents: state.expectedEvents,
+  });
+  els.draftStatus.textContent = "Expectations saved";
+  renderAll();
 });
 
-function parseExpectedEvents(rawValue) {
-  const parsed = String(rawValue || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [platform, ...eventParts] = line.split(":");
-      return {
-        platform: platform.trim(),
-        eventName: eventParts.join(":").trim(),
-      };
-    })
-    .filter((event) => event.platform && event.eventName);
+els.issuesList.addEventListener("click", (event) => {
+  const row = event.target.closest("[data-event-id]");
+  if (row?.dataset.eventId) openEventDrawer(row.dataset.eventId);
+});
 
-  return parsed.length > 0 ? parsed : DEFAULT_EXPECTED_EVENTS;
-}
+els.overviewExportBtn.addEventListener("click", () => exportReport());
+els.downloadReportBtn.addEventListener("click", () => exportReport());
+els.exportFilteredReportBtn.addEventListener("click", () =>
+  exportReport({ filtered: true }),
+);
+els.exportJsonBtn.addEventListener("click", () => exportData("json"));
+els.exportCsvBtn.addEventListener("click", () => exportData("csv"));
 
-clearBtn.addEventListener("click", async () => {
+els.clearAllBtn.addEventListener("click", async () => {
   const confirmed = await showConfirm(
     "Clear Canvas?",
-    "Are you sure you want to permanently delete all tracked events? This action cannot be undone.",
+    "This clears captured events and audit runs. Checklist drafts stay saved.",
   );
   if (confirmed) {
-    store.clearAll();
+    await store.clearAll();
+    state.selectedEventId = null;
+    closeEventDrawer();
   }
 });
 
-settingsBtn.addEventListener("click", () => {
-  settingMaxEvents.value = store.settings?.maxEvents || "500";
-  settingSessionWindow.value = store.settings?.sessionWindow || "1800000";
-  settingsModal.style.display = "flex";
+els.settingsBtn.addEventListener("click", () => {
+  els.settingMaxEvents.value = store.settings?.maxEvents || "500";
+  els.settingSessionWindow.value = store.settings?.sessionWindow || "1800000";
+  els.settingsModal.style.display = "flex";
 });
 
-const closeSettings = () => {
-  settingsModal.style.display = "none";
-};
-
-closeSettingsBtn.addEventListener("click", closeSettings);
-settingsModal.addEventListener("click", (e) => {
-  if (e.target === settingsModal) closeSettings();
-});
-
-saveSettingsBtn.addEventListener("click", async () => {
-  const maxEvents = parseInt(settingMaxEvents.value, 10);
-  const sessionWindow = parseInt(settingSessionWindow.value, 10);
-  await store.saveSettings({ maxEvents, sessionWindow });
-  closeSettings();
-  updateUI();
-});
-
-// Mobile Toggle Logic
-if (mobileMenuToggle) {
-  mobileMenuToggle.addEventListener("click", () => {
-    sidebar.classList.toggle("open");
-  });
+function closeSettings() {
+  els.settingsModal.style.display = "none";
 }
 
-// Close sidebar when clicking outside on mobile
-document.addEventListener("click", (e) => {
-  if (window.innerWidth <= 1200 && sidebar.classList.contains("open")) {
-    if (!sidebar.contains(e.target) && !mobileMenuToggle.contains(e.target)) {
-      sidebar.classList.remove("open");
-    }
+els.closeSettingsBtn.addEventListener("click", closeSettings);
+els.settingsModal.addEventListener("click", (event) => {
+  if (event.target === els.settingsModal) closeSettings();
+});
+
+els.saveSettingsBtn.addEventListener("click", async () => {
+  await store.saveSettings({
+    maxEvents: parseInt(els.settingMaxEvents.value, 10),
+    sessionWindow: parseInt(els.settingSessionWindow.value, 10),
+  });
+  closeSettings();
+  renderAll();
+});
+
+els.clearDraftBtn.addEventListener("click", async () => {
+  const confirmed = await showConfirm(
+    "Clear Settings Drafts?",
+    "This clears autosaved workspace view, filters, and unsaved checklist drafts.",
+  );
+  if (!confirmed) return;
+  await store.clearWorkspaceDraft();
+  hydrated = false;
+  hydrateWorkspaceState();
+  closeSettings();
+  renderAll();
+});
+
+els.closeDrawerBtn.addEventListener("click", closeEventDrawer);
+els.drawerBackdrop.addEventListener("click", closeEventDrawer);
+
+document.addEventListener("click", (event) => {
+  if (window.innerWidth > 1200 || !els.sidebar.classList.contains("open")) return;
+  if (
+    !els.sidebar.contains(event.target) &&
+    !els.mobileMenuToggle.contains(event.target)
+  ) {
+    els.sidebar.classList.remove("open");
   }
 });
 
-// --- Initialization ---
-
 store.subscribe((eventsMap) => {
+  if (!store.ready) return;
+  if (!hydrated) hydrateWorkspaceState();
   updateTabSelector(eventsMap);
-  updateUI();
+  renderAll();
 });

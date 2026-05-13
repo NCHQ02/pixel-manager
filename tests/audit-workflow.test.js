@@ -5,8 +5,14 @@ import { parseGoogleRequest } from "../src/background/parsers/google.js";
 import {
   DEFAULT_EXPECTED_EVENTS,
   buildChecklist,
+  buildHealthScore,
   buildIssues,
   buildReportHtml,
+  buildProfessionalReportHtml,
+  buildReportModel,
+  buildTimeline,
+  getIssueFixSuggestion,
+  mergeWorkspaceDraft,
 } from "../src/dashboard/js/audit.js";
 
 test("parses Google Ads conversion from googleadservices endpoint", () => {
@@ -39,6 +45,33 @@ test("builds checklist with missing expected events", () => {
 
   assert.equal(checklist[0].status, "valid");
   assert.equal(checklist[1].status, "missing");
+});
+
+test("uses TikTok Pageview casing in expected events", () => {
+  const tiktokPageview = DEFAULT_EXPECTED_EVENTS.find(
+    (event) => event.platform === "TikTok" && event.eventName === "Pageview",
+  );
+
+  assert.deepEqual(tiktokPageview, {
+    platform: "TikTok",
+    eventName: "Pageview",
+  });
+
+  const checklist = buildChecklist(
+    [
+      {
+        platform: "TikTok",
+        pixelId: "C123",
+        eventName: "PageView",
+        eventData: { event_id: "evt-1" },
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "TikTok", eventName: "PageView" }],
+  );
+
+  assert.equal(checklist[0].eventName, "Pageview");
+  assert.equal(checklist[0].status, "valid");
 });
 
 test("classifies observed events with missing required params", () => {
@@ -80,6 +113,149 @@ test("groups duplicate and expected-event issues", () => {
 
   assert.ok(issues.some((issue) => issue.message.includes("Duplicate firing")));
   assert.ok(issues.some((issue) => issue.message.includes("Expected event")));
+});
+
+test("builds health score with capped issue deductions", () => {
+  const health = buildHealthScore(
+    [
+      {
+        id: "evt-1",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "Purchase",
+        eventData: { eid: "evt-1", cd: { value: "10", currency: "USD" } },
+        duplicateCount: 2,
+        timestamp: 1,
+      },
+    ],
+    [
+      { platform: "Meta", eventName: "Purchase" },
+      { platform: "TikTok", eventName: "CompletePayment" },
+    ],
+  );
+
+  assert.equal(health.score, 82);
+  assert.equal(health.label, "Needs Review");
+});
+
+test("builds timeline with missing, duplicate, and out-of-order states", () => {
+  const timeline = buildTimeline(
+    [
+      {
+        id: "page",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "PageView",
+        eventData: {},
+        timestamp: 200,
+      },
+      {
+        id: "cart",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "AddToCart",
+        eventData: {},
+        timestamp: 300,
+      },
+      {
+        id: "purchase",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "Purchase",
+        eventData: {},
+        duplicateCount: 2,
+        timestamp: 100,
+      },
+    ],
+    [],
+  );
+
+  assert.equal(timeline.find((step) => step.eventName === "ViewContent").status, "missing");
+  const purchase = timeline.find((step) => step.eventName === "Purchase");
+  assert.equal(purchase.status, "out_of_order");
+  assert.equal(purchase.duplicateCount, 2);
+});
+
+test("returns concrete quick fix suggestions", () => {
+  assert.match(
+    getIssueFixSuggestion({
+      message: "Missing required parameter: eventData.cd.value.",
+      event: { eventName: "Purchase" },
+    }),
+    /Data Layer variable/,
+  );
+  assert.match(
+    getIssueFixSuggestion({
+      message: "Duplicate firing detected 2 time(s).",
+      event: { eventName: "Purchase" },
+    }),
+    /duplicate pixel installs/i,
+  );
+});
+
+test("merges workspace drafts without dropping nested filters", () => {
+  const draft = mergeWorkspaceDraft(
+    {
+      activeWorkspaceView: "live",
+      filters: { searchQuery: "Purchase", statusFilter: "All" },
+      expectedPixels: { Meta: "123" },
+      expectedEvents: [{ platform: "Meta", eventName: "Purchase" }],
+    },
+    {
+      filters: { statusFilter: "warning" },
+      expectedPixels: { TikTok: "C123" },
+    },
+  );
+
+  assert.equal(draft.filters.searchQuery, "Purchase");
+  assert.equal(draft.filters.statusFilter, "warning");
+  assert.deepEqual(draft.expectedPixels, { TikTok: "C123" });
+});
+
+test("builds professional HTML report without external dependencies", () => {
+  const reportModel = buildReportModel({
+    auditRun: { domain: "shop.test", startedAt: 1, endedAt: 2 },
+    expectedEvents: [{ platform: "Meta", eventName: "Purchase" }],
+    expectedPixels: {},
+    events: [
+      {
+        id: "evt-1",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "Purchase",
+        eventData: { eid: "evt-1", cd: { value: "<script>", currency: "USD" } },
+        timestamp: 1,
+      },
+    ],
+  });
+  const html = buildProfessionalReportHtml(reportModel);
+
+  assert.match(html, /Tracking Health/);
+  assert.match(html, /Funnel Timeline/);
+  assert.match(html, /Issues &amp; Fixes|Issues & Fixes/);
+  assert.match(html, /Generated locally by OmniSignal/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<(script|link)\b/i);
+  assert.doesNotMatch(html, /(src|href)=["']https?:/i);
+});
+
+test("report model keeps audited page path in target label", () => {
+  const reportModel = buildReportModel({
+    auditRun: {
+      domain: "shop.test",
+      url: "https://shop.test/products/cookie?utm_source=ads",
+      startedAt: 1,
+      endedAt: 2,
+    },
+    events: [],
+  });
+  const html = buildProfessionalReportHtml(reportModel);
+
+  assert.equal(
+    reportModel.auditTarget.label,
+    "shop.test/products/cookie?utm_source=ads",
+  );
+  assert.match(html, /shop\.test\/products\/cookie\?utm_source=ads/);
 });
 
 test("builds an HTML report with escaped payload", () => {

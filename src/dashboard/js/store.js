@@ -7,6 +7,8 @@ export class PixelStore {
     this.settings = { maxEvents: 500, sessionWindow: 1800000 };
     this.auditRuns = {};
     this.auditState = { auditTabs: {}, activeAuditRunId: null };
+    this.workspaceDraft = {};
+    this.ready = false;
     this.listeners = [];
     this.init();
   }
@@ -17,11 +19,14 @@ export class PixelStore {
       "trackedEvents",
       "settings",
       "auditRuns",
+      "auditWorkspaceDraft",
     ]);
     this.events = result.trackedEvents || {};
     if (result.settings) this.settings = result.settings;
     this.auditRuns = result.auditRuns || {};
+    this.workspaceDraft = result.auditWorkspaceDraft || {};
     await this.refreshAuditState();
+    this.ready = true;
     this.notify();
 
     // Listen for storage changes
@@ -38,6 +43,10 @@ export class PixelStore {
         }
         if (changes.auditRuns) {
           this.auditRuns = changes.auditRuns.newValue || {};
+          shouldNotify = true;
+        }
+        if (changes.auditWorkspaceDraft) {
+          this.workspaceDraft = changes.auditWorkspaceDraft.newValue || {};
           shouldNotify = true;
         }
         if (shouldNotify) this.notify();
@@ -83,6 +92,34 @@ export class PixelStore {
     };
     this.auditRuns = auditRuns;
     await chrome.storage.local.set({ auditRuns });
+    this.notify();
+  }
+
+  async saveWorkspaceDraft(partialDraft) {
+    this.workspaceDraft = {
+      ...this.workspaceDraft,
+      ...partialDraft,
+      filters: {
+        ...(this.workspaceDraft.filters || {}),
+        ...(partialDraft.filters || {}),
+      },
+      expectedPixels:
+        partialDraft.expectedPixels !== undefined
+          ? { ...(partialDraft.expectedPixels || {}) }
+          : { ...(this.workspaceDraft.expectedPixels || {}) },
+      expectedEvents:
+        partialDraft.expectedEvents !== undefined
+          ? [...(partialDraft.expectedEvents || [])]
+          : [...(this.workspaceDraft.expectedEvents || [])],
+    };
+    await chrome.storage.local.set({
+      auditWorkspaceDraft: this.workspaceDraft,
+    });
+  }
+
+  async clearWorkspaceDraft() {
+    this.workspaceDraft = {};
+    await chrome.storage.local.set({ auditWorkspaceDraft: {} });
     this.notify();
   }
 

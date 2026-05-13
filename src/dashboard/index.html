@@ -2,503 +2,442 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>
-      OmniSignal | Multi-Platform Data Tracker | Build by BanhMiSaiGon
-    </title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OmniSignal | Audit Command Center</title>
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
     <div class="layout">
-      <!-- Sidebar -->
-      <aside class="sidebar">
+      <aside class="sidebar" aria-label="Workspace navigation">
         <div class="sidebar-header">
           <div class="brand">
-            <img
-              src="https://img.icons8.com/arcade/64/data-arrived.png"
-              width="48"
-              height="48"
-              alt=""
-              style="object-fit: contain; border-radius: 8px"
-            />
+            <span class="brand-mark">OS</span>
             <div class="brand-info">
-              <h1 class="display-xs">OmniSignal</h1>
-              <div class="status-mini">
-                <div class="pulse-dot"></div>
-                <span class="caption-xs">Active Signals</span>
-              </div>
+              <h1>OmniSignal</h1>
+              <span class="caption-xs">Audit Command</span>
             </div>
           </div>
         </div>
 
         <nav class="sidebar-nav">
-          <div class="search-container">
-            <input
-              type="text"
-              id="global-search"
-              placeholder="Search events, IDs, URLs..."
-              class="search-input"
-            />
-            <svg
-              class="search-icon"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.3-4.3" />
-            </svg>
-          </div>
-
-          <p class="eyebrow nav-title">Filter Stream</p>
-          <button id="tab-all" class="filter-btn active">All Events</button>
-          <button id="tab-meta" class="filter-btn">
-            <img
-              src="https://img.icons8.com/fluency/48/meta.png"
-              width="16"
-              height="16"
-              aria-hidden="true"
-            />
-            Meta Pixel
+          <p class="eyebrow nav-title">Workspace</p>
+          <button id="view-overview" class="rail-link active" data-view="overview">
+            Overview
           </button>
-          <button id="tab-tiktok" class="filter-btn">
-            <img
-              src="https://img.icons8.com/color/48/tiktok--v1.png"
-              width="16"
-              height="16"
-              aria-hidden="true"
-            />
-            TikTok Pixel
+          <button id="view-live" class="rail-link" data-view="live">
+            Live
           </button>
-          <button id="tab-google" class="filter-btn">
-            <img
-              src="https://img.icons8.com/color/48/google-logo.png"
-              width="16"
-              height="16"
-              aria-hidden="true"
-            />
-            Google Suite
+          <button id="view-checklist" class="rail-link" data-view="checklist">
+            Checklist
           </button>
-          <button id="tab-diagnostics" class="filter-btn">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
-            Diagnostics
+          <button id="view-issues" class="rail-link" data-view="issues">
+            Issues
+          </button>
+          <button id="view-report" class="rail-link" data-view="report">
+            Report
           </button>
 
-          <p class="eyebrow nav-title" style="margin-top: 32px">
-            QA Workspace
-          </p>
-          <button id="view-live" class="filter-btn active">Live Stream</button>
-          <button id="view-checklist" class="filter-btn">Audit Checklist</button>
-          <button id="view-issues" class="filter-btn">Issues</button>
-          <button id="view-report" class="filter-btn">Report</button>
-
-          <p class="eyebrow nav-title" style="margin-top: 32px">
-            Workspace Scope
-          </p>
-          <div style="padding: 0 8px">
-            <select
-              id="tab-selector"
-              class="tab-select"
-              style="width: 100%; margin: 0 0 12px 0"
-            >
-              <option value="all">All Browser Tabs</option>
-            </select>
-
-            <label class="toggle-container">
-              <input type="checkbox" id="session-view-toggle" />
-              <span class="toggle-label body-sm">Session Grouping</span>
-            </label>
-          </div>
+          <p class="eyebrow nav-title">Actions</p>
+          <button id="settings-btn" class="rail-link" type="button">
+            Settings
+          </button>
+          <button id="clear-all-btn" class="rail-link danger" type="button">
+            Clear Canvas
+          </button>
         </nav>
 
         <div class="sidebar-footer">
-          <div class="footer-actions">
-            <p class="eyebrow nav-title" style="margin-bottom: 12px">
-              Data & Config
-            </p>
-            <div style="display: flex; gap: 8px; margin-bottom: 8px">
-              <button
-                id="export-json-btn"
-                class="button-pill button-outline"
-                style="flex: 1; padding: 10px; font-size: 12px"
-              >
-                JSON
-              </button>
-              <button
-                id="export-csv-btn"
-                class="button-pill button-outline"
-                style="flex: 1; padding: 10px; font-size: 12px"
-              >
-                CSV
-              </button>
-            </div>
-            <button
-              id="export-report-btn"
-              class="button-pill button-outline"
-              style="
-                width: 100%;
-                margin-bottom: 8px;
-                padding: 10px;
-                font-size: 12px;
-              "
-            >
-              Export Report
-            </button>
-
-            <button
-              id="settings-btn"
-              class="button-pill button-outline"
-              style="
-                width: 100%;
-                margin-bottom: 8px;
-                padding: 10px;
-                font-size: 12px;
-              "
-            >
-              General Settings
-            </button>
-            <button
-              id="clear-all-btn"
-              class="button-pill button-outline"
-              style="
-                width: 100%;
-                padding: 10px;
-                font-size: 12px;
-                border-color: #fee2e2;
-                color: #991b1b;
-              "
-            >
-              Clear Canvas
-            </button>
-          </div>
-
-          <div class="copyright caption" style="margin-top: 16px">
-            (c) 2026 / All Systems Operational
-          </div>
+          <p class="caption">Local-only audit workspace</p>
+          <p class="caption-xs">(c) 2026 / OmniSignal</p>
         </div>
       </aside>
 
-      <!-- Main Workspace -->
       <main class="workspace">
-        <button
-          id="mobile-menu-toggle"
-          class="mobile-menu-toggle"
-          aria-label="Open filters"
-        >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
+        <header class="workspace-topbar">
+          <button
+            id="mobile-menu-toggle"
+            class="icon-button"
+            aria-label="Open navigation"
+            type="button"
           >
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
-        </button>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
 
-        <!-- Color Block Hero -->
-        <header id="hero-section" class="hero color-block bg-lilac">
-          <p id="hero-eyebrow" class="eyebrow">The Event Canvas</p>
-          <h2 id="hero-title" class="display-lg" style="margin: 16px 0">
-            A real-time, unstructured stream of tracking pixels.
-          </h2>
-          <p id="hero-subtitle" class="body-lg">
-            No secrets, no obfuscation. Watch data dispatch from your browser as
-            it happens.
-          </p>
-          <div class="hero-actions">
-            <button id="start-audit-btn" class="button-pill button-primary">
-              Start Audit
-            </button>
-            <button id="start-reload-btn" class="button-pill button-outline">
-              Start + Reload
-            </button>
+          <div class="toolbar-search">
+            <input
+              id="global-search"
+              class="search-input"
+              type="search"
+              placeholder="Search events, IDs, URLs..."
+            />
           </div>
-          <div id="audit-session-status" class="audit-session-status caption">
-            No audit session is active.
+
+          <div class="toolbar-controls">
+            <select id="platform-filter" class="select-input" aria-label="Platform filter">
+              <option value="All">All Platforms</option>
+              <option value="Meta">Meta</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Google">Google Suite</option>
+              <option value="Diagnostics">Diagnostics</option>
+            </select>
+            <select id="status-filter" class="select-input" aria-label="Status filter">
+              <option value="All">All Status</option>
+              <option value="valid">Valid</option>
+              <option value="warning">Warning</option>
+              <option value="missing">Missing Params</option>
+              <option value="duplicate">Duplicate</option>
+              <option value="diagnostic">Diagnostic</option>
+            </select>
+            <select id="tab-selector" class="select-input" aria-label="Tab selector">
+              <option value="all">All Browser Tabs</option>
+            </select>
           </div>
         </header>
 
-        <section
-          id="tags-summary-container"
-          class="tags-summary"
-          style="display: none"
-        >
-          <div class="section-heading-row">
-            <p class="eyebrow nav-title" style="margin: 0">Detected Tags</p>
-            <span class="caption">Click a tag to isolate events</span>
+        <section id="overview-view-pane" class="view-pane active">
+          <div class="overview-grid">
+            <section class="color-block bg-lilac session-panel">
+              <p class="eyebrow">Audit Session</p>
+              <h2 id="overview-domain" class="display-lg">No active audit</h2>
+              <p id="audit-session-status" class="body-lg">
+                Open a target site and start a controlled audit window.
+              </p>
+              <div class="hero-actions">
+                <button id="start-audit-btn" class="button-pill button-primary">
+                  Start Audit
+                </button>
+                <button id="start-reload-btn" class="button-pill button-outline">
+                  Start + Reload
+                </button>
+              </div>
+            </section>
+
+            <section id="health-card" class="color-block bg-cream health-card">
+              <p class="eyebrow">Tracking Health</p>
+              <div id="health-score-value" class="score-number">100%</div>
+              <span id="health-score-label" class="status-pill status-valid">
+                Healthy
+              </span>
+            </section>
           </div>
-          <div id="tags-summary-list" class="tags-summary-list"></div>
+
+          <section class="summary-grid" aria-label="Audit summary">
+            <div class="summary-tile">
+              <span class="caption">Events</span>
+              <strong id="summary-events">0</strong>
+            </div>
+            <div class="summary-tile">
+              <span class="caption">Expected Pass</span>
+              <strong id="summary-pass">0 / 0</strong>
+            </div>
+            <div class="summary-tile">
+              <span class="caption">Issues</span>
+              <strong id="summary-issues">0</strong>
+            </div>
+            <div class="summary-tile">
+              <span class="caption">Redactions</span>
+              <strong id="summary-redactions">0</strong>
+            </div>
+          </section>
+
+          <section class="workspace-section">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">Guided QA</p>
+                <h3 class="headline">Campaign tracking readiness</h3>
+              </div>
+              <button id="overview-export-btn" class="button-pill button-outline">
+                Export Report
+              </button>
+            </div>
+            <div id="qa-stepper" class="stepper"></div>
+          </section>
+
+          <section class="workspace-section">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">Funnel Timeline</p>
+                <h3 class="headline">Expected event order</h3>
+              </div>
+            </div>
+            <div id="overview-timeline" class="timeline-strip"></div>
+          </section>
         </section>
 
-        <!-- Data Table -->
-        <section id="live-view-pane" class="data-section view-pane active">
-          <div class="table-wrapper">
-            <table id="events-table">
-              <thead>
-                <tr>
-                  <th
-                    class="caption time-col sortable active-sort"
-                    data-sort="timestamp"
-                  >
-                    Time
-                    <span class="sort-icon"
-                      ><svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg
-                    ></span>
-                  </th>
-                  <th class="caption method-col sortable" data-sort="method">
-                    Method
-                    <span class="sort-icon"
-                      ><svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg
-                    ></span>
-                  </th>
-                  <th
-                    class="caption platform-col sortable"
-                    data-sort="platform"
-                  >
-                    Platform
-                    <span class="sort-icon"
-                      ><svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg
-                    ></span>
-                  </th>
-                  <th class="caption event-col sortable" data-sort="eventName">
-                    Event Name
-                    <span class="sort-icon"
-                      ><svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                      >
-                        <path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg
-                    ></span>
-                  </th>
-                  <th class="action-col"></th>
-                </tr>
-              </thead>
-              <tbody id="events-table-body">
-                <!-- Rows injected here via JS -->
-              </tbody>
-            </table>
-          </div>
-
-          <div id="empty-state" class="empty-state color-block bg-cream">
-            <div class="empty-state-illustration">
-              <svg
-                width="64"
-                height="64"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                style="opacity: 0.2"
-              >
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-              </svg>
+        <section id="live-view-pane" class="view-pane">
+          <section class="workspace-section">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">Live Stream</p>
+                <h2 class="headline">Realtime tracking events</h2>
+              </div>
+              <label class="toggle-container">
+                <input type="checkbox" id="session-view-toggle" />
+                <span class="body-sm">Session grouping</span>
+              </label>
             </div>
-            <h3 class="headline" style="margin-bottom: 8px">Awaiting Signal</h3>
-            <p class="body-lg" style="max-width: 440px">
-              Navigate to a site with tracking integrations to begin real-time
-              interception. Dispatched events will materialize on the canvas as
-              they occur.
-            </p>
-          </div>
+            <div id="live-timeline" class="timeline-strip"></div>
+          </section>
+
+          <section
+            id="tags-summary-container"
+            class="workspace-section tags-summary"
+            style="display: none"
+          >
+            <div class="section-heading-row">
+              <p class="eyebrow">Detected Tags</p>
+              <span class="caption">Click a tag to isolate events</span>
+            </div>
+            <div id="tags-summary-list" class="tags-summary-list"></div>
+          </section>
+
+          <section class="workspace-section">
+            <div id="events-list" class="event-list"></div>
+            <div id="empty-state" class="empty-state color-block bg-cream">
+              <p class="eyebrow">Awaiting Signal</p>
+              <h3 class="headline">No matching events yet.</h3>
+              <p class="body-lg">
+                Start an audit, reload the target page, then trigger the funnel
+                steps your campaign depends on.
+              </p>
+            </div>
+          </section>
         </section>
 
         <section id="checklist-view-pane" class="view-pane">
-          <div class="qa-section color-block bg-cream">
-            <p class="eyebrow">Audit Checklist</p>
-            <h3 class="headline">Expected vs actual tracking events.</h3>
+          <section class="color-block bg-cream setup-panel">
+            <p class="eyebrow">Checklist Setup</p>
+            <h2 class="headline">Expected events and pixel IDs</h2>
+            <p class="body-lg">
+              Configure the signals the media team expects before launch.
+            </p>
+
             <div class="expectation-grid">
               <label class="expectation-field body-sm">
                 Meta Pixel ID
-                <input id="expected-meta-pixel" class="text-input" placeholder="1234567890" />
+                <input
+                  id="expected-meta-pixel"
+                  class="text-input expected-pixel-input"
+                  data-platform="Meta"
+                  placeholder="1234567890"
+                />
               </label>
               <label class="expectation-field body-sm">
                 TikTok Pixel ID
-                <input id="expected-tiktok-pixel" class="text-input" placeholder="CABC123" />
+                <input
+                  id="expected-tiktok-pixel"
+                  class="text-input expected-pixel-input"
+                  data-platform="TikTok"
+                  placeholder="CABC123"
+                />
               </label>
               <label class="expectation-field body-sm">
                 GA4 Measurement ID
-                <input id="expected-ga4-pixel" class="text-input" placeholder="G-XXXXXXX" />
+                <input
+                  id="expected-ga4-pixel"
+                  class="text-input expected-pixel-input"
+                  data-platform="GA4"
+                  placeholder="G-XXXXXXX"
+                />
               </label>
               <label class="expectation-field body-sm">
                 Google Ads ID / Label
-                <input id="expected-google-pixel" class="text-input" placeholder="AW-123456789" />
+                <input
+                  id="expected-google-pixel"
+                  class="text-input expected-pixel-input"
+                  data-platform="Google Ads"
+                  placeholder="AW-123456789"
+                />
               </label>
             </div>
-            <label class="expectation-field body-sm">
-              Expected Events
-              <textarea
-                id="expected-events-input"
-                class="text-input expectation-textarea"
-                placeholder="Meta:Purchase&#10;TikTok:CompletePayment&#10;GA4:purchase"
-              ></textarea>
-            </label>
-            <button id="save-expectations-btn" class="button-pill button-primary">
-              Save Expectations
-            </button>
-          </div>
-          <div id="checklist-list" class="qa-list"></div>
+
+            <div id="expectation-presets" class="preset-grid"></div>
+
+            <div class="custom-event-row">
+              <select id="custom-platform-select" class="select-input">
+                <option value="Meta">Meta</option>
+                <option value="TikTok">TikTok</option>
+                <option value="GA4">GA4</option>
+                <option value="Google Ads">Google Ads</option>
+                <option value="Floodlight">Floodlight</option>
+              </select>
+              <input
+                id="custom-event-input"
+                class="text-input"
+                placeholder="Custom event name"
+              />
+              <button id="add-custom-event-btn" class="button-pill button-outline">
+                Add Event
+              </button>
+            </div>
+
+            <div class="button-row">
+              <button id="save-expectations-btn" class="button-pill button-primary">
+                Save Expectations
+              </button>
+              <span id="draft-status" class="caption">Draft autosaved locally</span>
+            </div>
+          </section>
+
+          <section class="workspace-section">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">Checklist Result</p>
+                <h3 class="headline">Expected vs actual</h3>
+              </div>
+            </div>
+            <div id="checklist-list" class="qa-list"></div>
+          </section>
         </section>
 
         <section id="issues-view-pane" class="view-pane">
-          <div id="issues-summary" class="qa-section color-block bg-tiktok">
+          <div id="issues-summary" class="qa-section color-block bg-mint">
             <p class="eyebrow">Issues</p>
-            <h3 class="headline">Warnings that need attention before launch.</h3>
+            <h2 class="headline">No blocking issues found so far.</h2>
           </div>
-          <div id="issues-list" class="qa-list"></div>
+          <div id="issues-list" class="issue-list"></div>
         </section>
 
         <section id="report-view-pane" class="view-pane">
-          <div class="qa-section color-block bg-cream">
-            <p class="eyebrow">Report</p>
-            <h3 class="headline">Client-ready audit summary.</h3>
+          <section class="color-block bg-cream report-hero">
+            <p class="eyebrow">Professional Export</p>
+            <h2 class="headline">Client-ready audit report</h2>
             <p class="body-lg">
-              Export an HTML report with detected platforms, pixel IDs, issues,
-              checklist status, and a raw payload appendix.
+              Export a polished HTML report with Health Score, funnel timeline,
+              checklist status, issues, fixes, and raw payload appendix.
             </p>
-            <button id="download-report-btn" class="button-pill button-primary">
-              Export HTML Report
-            </button>
-          </div>
+            <div class="hero-actions">
+              <button id="download-report-btn" class="button-pill button-primary">
+                Export HTML Report
+              </button>
+              <button
+                id="export-filtered-report-btn"
+                class="button-pill button-outline"
+              >
+                Export Filtered
+              </button>
+              <button id="export-json-btn" class="button-pill button-outline">
+                JSON
+              </button>
+              <button id="export-csv-btn" class="button-pill button-outline">
+                CSV
+              </button>
+            </div>
+          </section>
           <div id="report-preview" class="report-preview"></div>
         </section>
       </main>
     </div>
 
+    <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+    <aside id="event-drawer" class="event-drawer" aria-label="Event details" hidden>
+      <div class="drawer-header">
+        <div>
+          <p id="drawer-platform" class="eyebrow">Event</p>
+          <h2 id="drawer-title" class="headline">Event Details</h2>
+        </div>
+        <button
+          id="close-event-drawer"
+          class="icon-button"
+          type="button"
+          aria-label="Close event details"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div id="drawer-content" class="drawer-content"></div>
+    </aside>
+
     <div id="modal-overlay" class="modal-overlay" style="display: none">
       <div class="modal-dialog color-block bg-cream">
         <h3 id="modal-title" class="headline">Are you sure?</h3>
-        <p id="modal-message" class="body" style="margin: 16px 0 32px 0">
-          This action cannot be undone. All tracked events will be permanently
-          removed.
+        <p id="modal-message" class="body">
+          This action cannot be undone.
         </p>
         <div class="modal-actions">
           <button id="modal-cancel" class="button-pill button-outline">
             Cancel
           </button>
-          <button
-            id="modal-confirm"
-            class="button-pill"
-            style="background: var(--colors-ink); color: white"
-          >
+          <button id="modal-confirm" class="button-pill button-primary">
             Confirm
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Settings Modal -->
     <div id="settings-modal" class="modal-overlay" style="display: none">
-      <div class="modal-dialog color-block bg-cream" style="max-width: 400px">
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-          "
-        >
-          <h3 class="headline" style="margin: 0">Settings</h3>
+      <div class="modal-dialog color-block bg-cream">
+        <div class="modal-title-row">
+          <h3 class="headline">Settings</h3>
           <button
             id="close-settings-btn"
+            class="icon-button"
             aria-label="Close settings"
-            style="
-              background: none;
-              border: none;
-              cursor: pointer;
-              font-size: 18px;
-            "
+            type="button"
           >
-            x
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
-        <div style="margin-bottom: 20px">
-          <label
-            class="body-sm"
-            style="font-weight: 600; display: block; margin-bottom: 8px"
-            >Max Events per Tab</label
-          >
-          <select
-            id="setting-max-events"
-            class="tab-select"
-            style="margin-bottom: 4px"
-          >
+        <label class="expectation-field body-sm">
+          Max Events per Tab
+          <select id="setting-max-events" class="select-input">
             <option value="50">50 Events</option>
             <option value="200">200 Events</option>
             <option value="500">500 Events</option>
             <option value="1000">1000 Events</option>
           </select>
-          <p class="caption" style="opacity: 0.7; margin: 0">
-            Higher limits consume more browser memory.
-          </p>
-        </div>
+        </label>
 
-        <div style="margin-bottom: 32px">
-          <label
-            class="body-sm"
-            style="font-weight: 600; display: block; margin-bottom: 8px"
-            >Session Grouping Window</label
-          >
-          <select id="setting-session-window" class="tab-select">
+        <label class="expectation-field body-sm">
+          Session Grouping Window
+          <select id="setting-session-window" class="select-input">
             <option value="300000">5 Minutes</option>
             <option value="900000">15 Minutes</option>
             <option value="1800000">30 Minutes</option>
             <option value="3600000">1 Hour</option>
           </select>
-        </div>
+        </label>
 
-        <button
-          id="save-settings-btn"
-          class="button-pill"
-          style="background: var(--colors-ink); color: white; width: 100%"
-        >
-          Save Preferences
-        </button>
+        <div class="modal-actions split">
+          <button id="clear-draft-btn" class="button-pill button-outline">
+            Clear Drafts
+          </button>
+          <button id="save-settings-btn" class="button-pill button-primary">
+            Save Preferences
+          </button>
+        </div>
       </div>
     </div>
 

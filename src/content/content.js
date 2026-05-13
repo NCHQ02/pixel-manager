@@ -1,44 +1,130 @@
-if (!globalThis.__OMNI_SIGNAL_CONTENT_LOADED) {
+const previousOmniSignalState = globalThis.__OMNI_SIGNAL_CONTENT_STATE;
+if (previousOmniSignalState?.teardown) {
+  previousOmniSignalState.teardown();
+}
+
+const omniSignalState = {
+  active: true,
+  cleanup: [],
+  teardown() {
+    this.active = false;
+    this.cleanup.splice(0).forEach((fn) => {
+      try {
+        fn();
+      } catch (_e) {}
+    });
+    const overlay = document.getElementById("omni-signal-overlay");
+    if (overlay) overlay.remove();
+  },
+};
+
+globalThis.__OMNI_SIGNAL_CONTENT_STATE = omniSignalState;
 globalThis.__OMNI_SIGNAL_CONTENT_LOADED = true;
 
-// --- DataLayer Interception ---
-const script = document.createElement("script");
-script.src = chrome.runtime.getURL("src/content/inject.js");
-script.onload = function () {
-  this.remove(); // Clean up after injection
-};
-(document.head || document.documentElement).appendChild(script);
+function hasRuntimeContext() {
+  try {
+    return !!chrome?.runtime?.id;
+  } catch (_e) {
+    return false;
+  }
+}
 
-window.addEventListener("PixelTracker_DataLayerPush", (e) => {
-  chrome.runtime.sendMessage({
+function deactivateContentScript() {
+  omniSignalState.teardown();
+}
+
+function safeGetRuntimeUrl(path) {
+  if (!hasRuntimeContext()) return "";
+  try {
+    return chrome.runtime.getURL(path);
+  } catch (_e) {
+    deactivateContentScript();
+    return "";
+  }
+}
+
+function safeSendMessage(message) {
+  if (!omniSignalState.active || !hasRuntimeContext()) {
+    deactivateContentScript();
+    return;
+  }
+
+  try {
+    chrome.runtime.sendMessage(message, () => {
+      try {
+        if (chrome.runtime.lastError) {
+          const messageText = chrome.runtime.lastError.message || "";
+          if (messageText.includes("Extension context invalidated")) {
+            deactivateContentScript();
+          }
+        }
+      } catch (_e) {
+        deactivateContentScript();
+      }
+    });
+  } catch (_e) {
+    deactivateContentScript();
+  }
+}
+
+function addWindowListener(type, handler, options) {
+  window.addEventListener(type, handler, options);
+  omniSignalState.cleanup.push(() =>
+    window.removeEventListener(type, handler, options),
+  );
+}
+
+function addRuntimeListener(handler) {
+  if (!hasRuntimeContext()) return;
+  try {
+    chrome.runtime.onMessage.addListener(handler);
+    omniSignalState.cleanup.push(() => {
+      try {
+        chrome.runtime.onMessage.removeListener(handler);
+      } catch (_e) {}
+    });
+  } catch (_e) {
+    deactivateContentScript();
+  }
+}
+
+const injectedScriptUrl = safeGetRuntimeUrl("src/content/inject.js");
+if (injectedScriptUrl) {
+  const script = document.createElement("script");
+  script.src = injectedScriptUrl;
+  script.onload = function () {
+    this.remove();
+  };
+  (document.head || document.documentElement).appendChild(script);
+}
+
+addWindowListener("PixelTracker_DataLayerPush", (event) => {
+  safeSendMessage({
     type: "DATALAYER_PUSH",
-    data: e.detail,
+    data: event.detail,
   });
 });
 
-window.addEventListener("PixelTracker_DataLayerHistory", (e) => {
-  chrome.runtime.sendMessage({
+addWindowListener("PixelTracker_DataLayerHistory", (event) => {
+  safeSendMessage({
     type: "DATALAYER_HISTORY",
-    data: e.detail,
+    data: event.detail,
   });
 });
 
-// --- Visual Overlay (Floating Bubble) ---
 let overlayElement = null;
 let overlayCount = 0;
 
 function createOverlay() {
-  if (overlayElement) return;
+  if (!omniSignalState.active) return;
+  if (overlayElement?.isConnected) return;
+
   const existingOverlay = document.getElementById("omni-signal-overlay");
-  if (existingOverlay) {
-    overlayElement = existingOverlay;
-    return;
-  }
+  if (existingOverlay) existingOverlay.remove();
 
   overlayElement = document.createElement("div");
   overlayElement.id = "omni-signal-overlay";
 
-  // Bauhaus-style Premium Aesthetic
   const styles = `
     #omni-signal-overlay {
       position: fixed;
@@ -89,8 +175,10 @@ function createOverlay() {
   `;
 
   const styleSheet = document.createElement("style");
+  styleSheet.id = "omni-signal-overlay-style";
   styleSheet.innerText = styles;
   document.head.appendChild(styleSheet);
+  omniSignalState.cleanup.push(() => styleSheet.remove());
 
   overlayElement.innerHTML = `
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -103,23 +191,27 @@ function createOverlay() {
   `;
 
   overlayElement.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "OPEN_DASHBOARD" });
+    safeSendMessage({ type: "OPEN_DASHBOARD" });
   });
 
   document.body.appendChild(overlayElement);
+  omniSignalState.cleanup.push(() => overlayElement?.remove());
 }
 
 function updateOverlay(count) {
-  if (!overlayElement) createOverlay();
+  if (!omniSignalState.active) return;
+  if (!overlayElement?.isConnected) createOverlay();
 
-  const badge = overlayElement.querySelector(".count-badge");
+  const badge = overlayElement?.querySelector(".count-badge");
+  if (!badge) return;
+
   if (count > 0) {
     badge.style.display = "block";
     badge.textContent = count > 99 ? "99+" : count;
 
     if (count > overlayCount) {
       overlayElement.classList.remove("pulse");
-      void overlayElement.offsetWidth; // trigger reflow
+      void overlayElement.offsetWidth;
       overlayElement.classList.add("pulse");
     }
   } else {
@@ -128,21 +220,14 @@ function updateOverlay(count) {
   overlayCount = count;
 }
 
-// Initial creation
-if (
-  document.readyState === "complete" ||
-  document.readyState === "interactive"
-) {
+if (document.readyState === "complete" || document.readyState === "interactive") {
   createOverlay();
 } else {
-  window.addEventListener("DOMContentLoaded", createOverlay);
+  addWindowListener("DOMContentLoaded", createOverlay);
 }
 
-// Listen for messages from background
-chrome.runtime.onMessage.addListener((message) => {
+addRuntimeListener((message) => {
   if (message.type === "PIXEL_EVENT_CAPTURED") {
     updateOverlay(message.eventCount);
   }
 });
-
-}

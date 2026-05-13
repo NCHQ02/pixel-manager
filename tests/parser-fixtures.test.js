@@ -55,6 +55,18 @@ test("parses TikTok CompletePayment JSON fixture", () => {
   assert.equal(parsed.eventData.properties.currency, "USD");
 });
 
+test("normalizes TikTok Pageview casing", () => {
+  const parsed = parseTikTokRequest(
+    new URL(
+      "https://analytics.tiktok.com/api/v2/pixel/track/?pixel_code=C123ABC&event=PageView",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.platform, "TikTok");
+  assert.equal(parsed.eventName, "Pageview");
+});
+
 test("parses GA4 collect fixture", () => {
   const parsed = parseGoogleRequest(
     new URL(
