@@ -508,6 +508,11 @@ export function buildProfessionalReportHtml(reportModel) {
     issue.message.includes("Duplicate firing"),
   ).length;
   const redactions = model.summary.redactions;
+  const healthClass = `tone-${escapeHtml(model.health.tone)}`;
+  const actionLine =
+    model.issues.length > 0
+      ? `${model.issues.length} issue(s) need review before campaign spend starts.`
+      : "No blocking issues detected in this audit window.";
 
   return `<!doctype html>
 <html lang="en">
@@ -539,9 +544,9 @@ export function buildProfessionalReportHtml(reportModel) {
         line-height: 1.45;
       }
       .page {
-        max-width: 1120px;
+        max-width: 1180px;
         margin: 0 auto;
-        padding: 48px 32px;
+        padding: 48px 32px 64px;
       }
       .eyebrow {
         font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
@@ -562,6 +567,19 @@ export function buildProfessionalReportHtml(reportModel) {
         font-weight: 540;
         letter-spacing: -0.26px;
       }
+      h3 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 620;
+      }
+      p { margin: 0; }
+      .lead {
+        max-width: 720px;
+        margin-top: 18px;
+        font-size: 22px;
+        font-weight: 330;
+        line-height: 1.34;
+      }
       .cover {
         background: var(--lilac);
         border-radius: 24px;
@@ -569,6 +587,7 @@ export function buildProfessionalReportHtml(reportModel) {
         margin-bottom: 32px;
       }
       .cover-top,
+      .cover-grid,
       .score-grid,
       .summary-grid,
       .timeline-grid {
@@ -578,6 +597,12 @@ export function buildProfessionalReportHtml(reportModel) {
       .cover-top {
         grid-template-columns: 1fr auto;
         align-items: start;
+      }
+      .cover-grid {
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+        gap: 32px;
+        align-items: stretch;
+        margin-top: 40px;
       }
       .brand {
         display: inline-flex;
@@ -614,8 +639,28 @@ export function buildProfessionalReportHtml(reportModel) {
       .pill-warning { background: #b45309; }
       .pill-error { background: #c53030; }
       .pill-valid { background: #0b7f4f; }
+      .health-panel {
+        display: grid;
+        align-content: center;
+        gap: 14px;
+        min-height: 260px;
+        border-radius: 24px;
+        background: #fff;
+        border: 1px solid rgba(0,0,0,.08);
+        padding: 28px;
+      }
+      .health-panel.tone-healthy { background: var(--mint); }
+      .health-panel.tone-review { background: var(--cream); }
+      .health-panel.tone-risk,
+      .health-panel.tone-blocked { background: var(--pink); }
+      .health-panel .score-number {
+        font-size: 92px;
+        line-height: .9;
+        font-weight: 340;
+        letter-spacing: -1.72px;
+      }
       .meta {
-        margin-top: 32px;
+        margin-top: 28px;
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 12px;
@@ -630,27 +675,29 @@ export function buildProfessionalReportHtml(reportModel) {
         display: block;
         font-size: 22px;
         letter-spacing: -0.2px;
+        overflow-wrap: anywhere;
       }
       .score-card {
-        background: var(--cream);
+        background: #fff;
         border: 1px solid var(--hairline);
         border-radius: 24px;
-        padding: 32px;
+        padding: 28px;
         margin: 32px 0;
       }
       .score-grid {
-        grid-template-columns: minmax(220px, 320px) 1fr;
+        grid-template-columns: minmax(220px, 300px) 1fr;
         align-items: center;
       }
-      .score-number {
-        font-size: 86px;
-        line-height: .9;
-        font-weight: 340;
-        letter-spacing: -1.72px;
-      }
       .section {
-        margin: 32px 0;
+        margin: 40px 0;
         page-break-inside: avoid;
+      }
+      .section-heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
       }
       .summary-grid {
         grid-template-columns: repeat(4, 1fr);
@@ -658,13 +705,35 @@ export function buildProfessionalReportHtml(reportModel) {
       .summary-tile {
         border: 1px solid var(--hairline);
         border-radius: 16px;
-        padding: 18px;
+        padding: 20px;
         background: #fff;
       }
+      .summary-tile.accent-lilac { background: var(--lilac); }
+      .summary-tile.accent-cream { background: var(--cream); }
+      .summary-tile.accent-mint { background: var(--mint); }
+      .summary-tile.accent-pink { background: var(--pink); }
       .summary-tile strong {
         display: block;
+        margin-top: 8px;
         font-size: 26px;
         letter-spacing: -0.3px;
+      }
+      .executive-card {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(240px, .9fr);
+        gap: 20px;
+        border-radius: 24px;
+        background: var(--cream);
+        padding: 28px;
+      }
+      .executive-card strong {
+        font-size: 24px;
+        font-weight: 540;
+        letter-spacing: -0.26px;
+      }
+      .executive-stack {
+        display: grid;
+        gap: 10px;
       }
       table {
         width: 100%;
@@ -698,6 +767,10 @@ export function buildProfessionalReportHtml(reportModel) {
         min-height: 112px;
         background: #fff;
       }
+      .timeline-step h3 {
+        margin: 10px 0 14px;
+        font-size: 18px;
+      }
       .timeline-step.missing {
         border-style: dashed;
         background: var(--cream);
@@ -712,9 +785,19 @@ export function buildProfessionalReportHtml(reportModel) {
       .payload {
         border: 1px solid var(--hairline);
         border-radius: 16px;
-        padding: 16px;
         margin-bottom: 14px;
         background: var(--soft);
+        overflow: hidden;
+      }
+      .payload summary {
+        cursor: pointer;
+        padding: 16px;
+        list-style: none;
+      }
+      .payload summary::-webkit-details-marker { display: none; }
+      .payload-body {
+        border-top: 1px solid var(--hairline);
+        padding: 0 16px 16px;
       }
       pre {
         white-space: pre-wrap;
@@ -734,14 +817,16 @@ export function buildProfessionalReportHtml(reportModel) {
         .page { padding: 18mm; max-width: none; }
         .cover, .score-card { border-radius: 18px; }
         h1 { font-size: 42px; }
-        .score-number { font-size: 64px; }
+        .health-panel .score-number { font-size: 64px; }
         .section, .score-card { page-break-inside: avoid; }
       }
       @media (max-width: 760px) {
         .page { padding: 24px 16px; }
         .cover { padding: 28px; }
         .cover-top,
+        .cover-grid,
         .score-grid,
+        .executive-card,
         .meta,
         .summary-grid { grid-template-columns: 1fr; }
         h1 { font-size: 42px; }
@@ -758,8 +843,18 @@ export function buildProfessionalReportHtml(reportModel) {
           </div>
           <span class="pill">${escapeHtml(model.health.label)}</span>
         </div>
-        <p class="eyebrow" style="margin-top: 40px;">Tracking Audit Report</p>
-        <h1>${escapeHtml(auditTarget)}</h1>
+        <div class="cover-grid">
+          <div>
+            <p class="eyebrow">Tracking Audit Report</p>
+            <h1>${escapeHtml(auditTarget)}</h1>
+            <p class="lead">${escapeHtml(actionLine)}</p>
+          </div>
+          <aside class="health-panel ${healthClass}">
+            <p class="eyebrow">Tracking Health</p>
+            <div class="score-number">${model.health.score}%</div>
+            <span class="pill">${escapeHtml(model.health.label)}</span>
+          </aside>
+        </div>
         <div class="meta">
           <div class="metric"><span class="eyebrow">Generated</span><strong>${escapeHtml(generatedAt)}</strong></div>
           <div class="metric"><span class="eyebrow">Audit Start</span><strong>${escapeHtml(startedAt)}</strong></div>
@@ -767,39 +862,48 @@ export function buildProfessionalReportHtml(reportModel) {
         </div>
       </section>
 
-      <section class="score-card">
-        <div class="score-grid">
-          <div>
-            <p class="eyebrow">Tracking Health</p>
-            <div class="score-number">${model.health.score}%</div>
-            <span class="pill">${escapeHtml(model.health.label)}</span>
-          </div>
-          <div>
-            <h2>Executive Summary</h2>
-            <p>${escapeHtml(platforms)} detected. ${passCount} expected event(s) passed and ${failCount} need review before campaign spend starts.</p>
-            <p><strong>Pixel IDs:</strong> ${escapeHtml(pixelIds)}</p>
-          </div>
+      <section class="section executive-card">
+        <div>
+          <p class="eyebrow">Executive Summary</p>
+          <strong>${passCount} passed / ${failCount} need review</strong>
+          <p class="lead" style="font-size: 20px;">${escapeHtml(platforms)} detected. Use this report to align media, tracking, and development teams before spend ramps.</p>
+        </div>
+        <div class="executive-stack">
+          <div class="summary-tile accent-mint"><span class="eyebrow">Pixel IDs</span><strong>${escapeHtml(pixelIds)}</strong></div>
+          <div class="summary-tile"><span class="eyebrow">Privacy</span><strong>Local only</strong></div>
         </div>
       </section>
 
       <section class="section">
         <div class="summary-grid">
-          ${summaryTile("Total Events", model.summary.total)}
-          ${summaryTile("Issues", model.issues.length)}
-          ${summaryTile("Duplicates", duplicateCount)}
-          ${summaryTile("Redactions", redactions)}
+          ${summaryTile("Total Events", model.summary.total, "accent-lilac")}
+          ${summaryTile("Issues", model.issues.length, model.issues.length ? "accent-pink" : "accent-mint")}
+          ${summaryTile("Duplicates", duplicateCount, duplicateCount ? "accent-cream" : "")}
+          ${summaryTile("Redactions", redactions, redactions ? "accent-pink" : "")}
         </div>
       </section>
 
       <section class="section">
-        <h2>Funnel Timeline</h2>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Funnel Timeline</p>
+            <h2>Expected event order</h2>
+          </div>
+          <span class="pill pill-soft">${model.timeline.length} step(s)</span>
+        </div>
         <div class="timeline-grid">
           ${model.timeline.map(renderReportTimelineStep).join("")}
         </div>
       </section>
 
       <section class="section">
-        <h2>Checklist</h2>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Checklist</p>
+            <h2>Expected vs observed</h2>
+          </div>
+          <span class="pill pill-soft">${passCount} / ${model.checklist.length} passed</span>
+        </div>
         <table>
           <thead>
             <tr><th>Platform</th><th>Expected Event</th><th>Status</th><th>Observed</th><th>Latest Time</th><th>Pixel ID</th></tr>
@@ -811,7 +915,13 @@ export function buildProfessionalReportHtml(reportModel) {
       </section>
 
       <section class="section">
-        <h2>Issues & Fixes</h2>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Issues & Fixes</p>
+            <h2>Next actions for launch readiness</h2>
+          </div>
+          <span class="pill ${model.issues.length ? "pill-warning" : "pill-valid"}">${model.issues.length} issue(s)</span>
+        </div>
         <table>
           <thead>
             <tr><th>Severity</th><th>Platform</th><th>Event</th><th>Detected Problem</th><th>Suggested Fix</th></tr>
@@ -823,7 +933,12 @@ export function buildProfessionalReportHtml(reportModel) {
       </section>
 
       <section class="section">
-        <h2>Platform Breakdown</h2>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Platform Breakdown</p>
+            <h2>Signal coverage by platform</h2>
+          </div>
+        </div>
         <table>
           <thead>
             <tr><th>Platform</th><th>Events</th><th>Pixel IDs</th><th>Warnings</th></tr>
@@ -835,7 +950,12 @@ export function buildProfessionalReportHtml(reportModel) {
       </section>
 
       <section class="section appendix">
-        <h2>Raw Payload Appendix</h2>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Raw Payload Appendix</p>
+            <h2>Escaped event payloads</h2>
+          </div>
+        </div>
         ${model.events.map(renderPayloadBlock).join("") || `<p>No raw payloads captured.</p>`}
       </section>
 
@@ -1024,8 +1144,8 @@ function formatReportDate(timestamp) {
   return new Date(timestamp).toLocaleString();
 }
 
-function summaryTile(label, value) {
-  return `<div class="summary-tile"><span class="eyebrow">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+function summaryTile(label, value, accent = "") {
+  return `<div class="summary-tile ${escapeHtml(accent)}"><span class="eyebrow">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
 function renderReportTimelineStep(step) {
@@ -1040,7 +1160,7 @@ function renderReportTimelineStep(step) {
     : "";
   return `<div class="timeline-step ${escapeHtml(step.status)}">
     <span class="eyebrow">${escapeHtml(step.platform)}</span>
-    <h3 style="margin: 8px 0 12px; font-size: 18px;">${escapeHtml(step.label)}</h3>
+    <h3>${escapeHtml(step.label)}</h3>
     <span class="pill ${step.status === "observed" ? "pill-valid" : step.status === "missing" ? "pill-soft" : "pill-warning"}">${escapeHtml(label)}</span>
     ${duplicate}
   </div>`;
@@ -1081,11 +1201,15 @@ function renderPlatformRow(item) {
 function renderPayloadBlock(event) {
   const meta = getPlatformMeta(event.platform);
   const payload = JSON.stringify(event.eventData || {}, null, 2);
-  return `<div class="payload">
-    <span class="eyebrow">${escapeHtml(event.platform)} / ${escapeHtml(event.eventName)}</span>
-    <p><strong>${escapeHtml(meta.label || event.platform)}</strong> - ${escapeHtml(event.pixelId || "No pixel ID")}</p>
-    <pre>${escapeHtml(payload)}</pre>
-  </div>`;
+  return `<details class="payload">
+    <summary>
+      <span class="eyebrow">${escapeHtml(event.platform)} / ${escapeHtml(event.eventName)}</span>
+      <p><strong>${escapeHtml(meta.label || event.platform)}</strong> - ${escapeHtml(event.pixelId || "No pixel ID")}</p>
+    </summary>
+    <div class="payload-body">
+      <pre>${escapeHtml(payload)}</pre>
+    </div>
+  </details>`;
 }
 
 export function platformBadge(platform) {

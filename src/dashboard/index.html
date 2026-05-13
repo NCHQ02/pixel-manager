@@ -157,9 +157,17 @@
                 <p class="eyebrow">Guided QA</p>
                 <h3 class="headline">Campaign tracking readiness</h3>
               </div>
-              <button id="overview-export-btn" class="button-pill button-outline">
-                Export Report
-              </button>
+              <div class="section-actions">
+                <button
+                  id="overview-preview-report-btn"
+                  class="button-pill button-outline"
+                >
+                  Preview Report
+                </button>
+                <button id="overview-export-btn" class="button-pill button-primary">
+                  Export Report
+                </button>
+              </div>
             </div>
             <div id="qa-stepper" class="stepper"></div>
           </section>
@@ -311,28 +319,41 @@
 
         <section id="report-view-pane" class="view-pane">
           <section class="color-block bg-cream report-hero">
-            <p class="eyebrow">Professional Export</p>
-            <h2 class="headline">Client-ready audit report</h2>
-            <p class="body-lg">
-              Export a polished HTML report with Health Score, funnel timeline,
-              checklist status, issues, fixes, and raw payload appendix.
-            </p>
-            <div class="hero-actions">
-              <button id="download-report-btn" class="button-pill button-primary">
-                Export HTML Report
-              </button>
-              <button
-                id="export-filtered-report-btn"
-                class="button-pill button-outline"
-              >
-                Export Filtered
-              </button>
-              <button id="export-json-btn" class="button-pill button-outline">
-                JSON
-              </button>
-              <button id="export-csv-btn" class="button-pill button-outline">
-                CSV
-              </button>
+            <div class="report-hero-grid">
+              <div>
+                <p class="eyebrow">Professional Export</p>
+                <h2 class="headline">Client-ready audit report</h2>
+                <p class="body-lg">
+                  Export a polished HTML report with Health Score, funnel timeline,
+                  checklist status, issues, fixes, and raw payload appendix.
+                </p>
+                <div class="hero-actions">
+                  <button id="preview-report-btn" class="button-pill button-outline">
+                    Preview Report
+                  </button>
+                  <button id="download-report-btn" class="button-pill button-primary">
+                    Export HTML Report
+                  </button>
+                  <button
+                    id="export-filtered-report-btn"
+                    class="button-pill button-outline"
+                  >
+                    Export Filtered
+                  </button>
+                  <button id="export-json-btn" class="button-pill button-outline">
+                    JSON
+                  </button>
+                  <button id="export-csv-btn" class="button-pill button-outline">
+                    CSV
+                  </button>
+                </div>
+              </div>
+              <div class="report-hero-card" aria-hidden="true">
+                <span class="brand-mark">OS</span>
+                <p class="eyebrow">Report Artifact</p>
+                <strong>Health Score</strong>
+                <span>Timeline / Checklist / Issues / Payloads</span>
+              </div>
             </div>
           </section>
           <div id="report-preview" class="report-preview"></div>

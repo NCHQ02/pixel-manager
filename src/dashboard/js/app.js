@@ -38,6 +38,7 @@ const state = {
 
 let hydrated = false;
 let draftTimer = null;
+let activeReportPreviewUrl = null;
 
 const renderer = new PixelRenderer("events-list", "empty-state", {
   onSelectEvent: openEventDrawer,
@@ -80,7 +81,9 @@ const els = {
   issuesSummary: document.getElementById("issues-summary"),
   issuesList: document.getElementById("issues-list"),
   reportPreview: document.getElementById("report-preview"),
+  overviewPreviewReportBtn: document.getElementById("overview-preview-report-btn"),
   overviewExportBtn: document.getElementById("overview-export-btn"),
+  previewReportBtn: document.getElementById("preview-report-btn"),
   downloadReportBtn: document.getElementById("download-report-btn"),
   exportFilteredReportBtn: document.getElementById("export-filtered-report-btn"),
   exportJsonBtn: document.getElementById("export-json-btn"),
@@ -479,24 +482,81 @@ function renderReportPreview(reportModel) {
   const passCount = reportModel.checklist.filter((item) => item.status === "valid").length;
   const platformText =
     reportModel.platformBreakdown.map((item) => item.platform).join(", ") || "None";
+  const duplicateCount = reportModel.issues.filter((issue) =>
+    issue.message.includes("Duplicate firing"),
+  ).length;
+  const timelinePreview = reportModel.timeline
+    .slice(0, 4)
+    .map(
+      (step) => `
+        <span class="status-pill status-${escapeHtml(step.status)}">
+          ${escapeHtml(step.label)}
+        </span>
+      `,
+    )
+    .join("");
+  const issuePreview =
+    reportModel.issues
+      .slice(0, 3)
+      .map(
+        (issue) => `
+          <div>
+            <span class="caption">${escapeHtml(issue.platform)} / ${escapeHtml(issue.eventName)}</span>
+            <strong class="body-sm">${escapeHtml(issue.message)}</strong>
+          </div>
+        `,
+      )
+      .join("") || `<span class="body-sm">No current issues detected.</span>`;
+
   els.reportPreview.innerHTML = `
-    <div class="report-row">
-      <span class="caption">Health Score</span>
-      <strong>${reportModel.health.score}% ${escapeHtml(reportModel.health.label)}</strong>
-      <span class="caption">Domain</span>
-      <strong>${escapeHtml(reportModel.auditTarget?.label || "Not available")}</strong>
+    <div class="report-preview-cover">
+      <div>
+        <div class="brand">
+          <span class="brand-mark">OS</span>
+          <div>
+            <strong>OmniSignal Audit Report</strong>
+            <p class="caption">Client / Dev Artifact</p>
+          </div>
+        </div>
+        <p class="eyebrow report-preview-target">Audited Target</p>
+        <h3>${escapeHtml(reportModel.auditTarget?.label || "Not available")}</h3>
+        <p class="body-lg">${escapeHtml(platformText)} detected. ${passCount} of ${reportModel.checklist.length} expected event(s) passed.</p>
+      </div>
+      <div class="report-preview-score">
+        <p class="eyebrow">Tracking Health</p>
+        <strong>${reportModel.health.score}%</strong>
+        <span class="status-pill status-${escapeHtml(reportModel.health.tone)}">
+          ${escapeHtml(reportModel.health.label)}
+        </span>
+      </div>
     </div>
-    <div class="report-row">
-      <span class="caption">Platforms</span>
-      <strong>${escapeHtml(platformText)}</strong>
-      <span class="caption">Checklist</span>
-      <strong>${passCount} / ${reportModel.checklist.length} passed</strong>
+    <div class="report-preview-grid">
+      <div class="report-preview-tile">
+        <span class="caption">Events</span>
+        <strong>${reportModel.summary.total}</strong>
+      </div>
+      <div class="report-preview-tile">
+        <span class="caption">Checklist</span>
+        <strong>${passCount} / ${reportModel.checklist.length}</strong>
+      </div>
+      <div class="report-preview-tile">
+        <span class="caption">Issues</span>
+        <strong>${reportModel.issues.length}</strong>
+      </div>
+      <div class="report-preview-tile">
+        <span class="caption">Duplicates</span>
+        <strong>${duplicateCount}</strong>
+      </div>
     </div>
-    <div class="report-row">
-      <span class="caption">Issues</span>
-      <strong>${reportModel.issues.length}</strong>
-      <span class="caption">Privacy Footer</span>
-      <strong>Local-only included</strong>
+    <div class="report-preview-section">
+      <div>
+        <p class="eyebrow">Funnel Timeline</p>
+        <div class="event-statuses">${timelinePreview}</div>
+      </div>
+      <div class="report-preview-list">
+        <p class="eyebrow">Issues & Fixes</p>
+        ${issuePreview}
+      </div>
     </div>
   `;
 }
@@ -688,7 +748,7 @@ function exportData(format, events = store.getAllEvents()) {
   );
 }
 
-function exportReport({ filtered = false } = {}) {
+function buildCurrentReportModel({ filtered = false } = {}) {
   const auditRun = getActiveAuditRun();
   const events = filtered
     ? getEvents({ includeDiagnostics: true })
@@ -698,7 +758,7 @@ function exportReport({ filtered = false } = {}) {
         applyStatus: false,
         includeDiagnostics: true,
       });
-  const reportModel = buildReportModel({
+  return buildReportModel({
     events,
     auditRun,
     expectedEvents: state.expectedEvents,
@@ -712,6 +772,11 @@ function exportReport({ filtered = false } = {}) {
         }
       : null,
   });
+}
+
+function exportReport({ filtered = false } = {}) {
+  const auditRun = getActiveAuditRun();
+  const reportModel = buildCurrentReportModel({ filtered });
   const html = buildProfessionalReportHtml(reportModel);
   const domain = slugify(
     formatAuditTargetLabel(auditRun?.url, auditRun?.domain || "not-available"),
@@ -722,6 +787,17 @@ function exportReport({ filtered = false } = {}) {
     `omnisignal-audit-${domain}-${date}.html`,
     "text/html",
   );
+}
+
+function previewReport({ filtered = false } = {}) {
+  const reportModel = buildCurrentReportModel({ filtered });
+  const html = buildProfessionalReportHtml(reportModel);
+  if (activeReportPreviewUrl) URL.revokeObjectURL(activeReportPreviewUrl);
+  activeReportPreviewUrl = URL.createObjectURL(
+    new Blob([html], { type: "text/html" }),
+  );
+
+  window.open(activeReportPreviewUrl, "_blank", "noopener,noreferrer");
 }
 
 function downloadContent(content, filename, mimeType) {
@@ -921,7 +997,9 @@ els.issuesList.addEventListener("click", (event) => {
   if (row?.dataset.eventId) openEventDrawer(row.dataset.eventId);
 });
 
+els.overviewPreviewReportBtn.addEventListener("click", () => previewReport());
 els.overviewExportBtn.addEventListener("click", () => exportReport());
+els.previewReportBtn.addEventListener("click", () => previewReport());
 els.downloadReportBtn.addEventListener("click", () => exportReport());
 els.exportFilteredReportBtn.addEventListener("click", () =>
   exportReport({ filtered: true }),
@@ -976,6 +1054,10 @@ els.clearDraftBtn.addEventListener("click", async () => {
   hydrateWorkspaceState();
   closeSettings();
   renderAll();
+});
+
+window.addEventListener("beforeunload", () => {
+  if (activeReportPreviewUrl) URL.revokeObjectURL(activeReportPreviewUrl);
 });
 
 els.closeDrawerBtn.addEventListener("click", closeEventDrawer);
