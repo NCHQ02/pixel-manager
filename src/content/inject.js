@@ -1,4 +1,7 @@
 (function() {
+  if (window.__OMNI_SIGNAL_INJECTED) return;
+  window.__OMNI_SIGNAL_INJECTED = true;
+
   window.dataLayer = window.dataLayer || [];
   const originalPush = window.dataLayer.push;
 

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "OmniSignal - Multi-Platform Data Tracker",
+  "name": "OmniSignal Pixel Tracker",
   "version": "2.1.0",
   "description": "Universal event interception and analysis for Meta, TikTok, and Google Suite.",
   "icons": {
@@ -8,8 +8,24 @@
     "48": "logo.png",
     "128": "logo.png"
   },
-  "permissions": ["webRequest", "storage", "tabs", "unlimitedStorage"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "webRequest",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "*://*.facebook.net/*",
+    "*://*.tiktok.com/*",
+    "*://*.byteoversea.com/*",
+    "*://*.google-analytics.com/*",
+    "*://*.google.com/*",
+    "*://*.googleadservices.com/*",
+    "*://*.doubleclick.net/*",
+    "*://*.googleads.g.doubleclick.net/*"
+  ],
   "background": {
     "service_worker": "src/background/index.js",
     "type": "module"
@@ -17,17 +33,10 @@
   "action": {
     "default_icon": "logo.png"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/content.js"],
-      "run_at": "document_start"
-    }
-  ],
   "web_accessible_resources": [
     {
       "resources": ["src/content/inject.js"],
-      "matches": ["<all_urls>"]
+      "matches": ["http://*/*", "https://*/*"]
     }
   ]
 }

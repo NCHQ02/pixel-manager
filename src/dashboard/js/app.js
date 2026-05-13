@@ -1,7 +1,19 @@
 import { store } from "./store.js";
 import { PixelRenderer } from "./renderer.js";
 import { showConfirm } from "./modal.js";
-import { groupEventsBySession, eventsToCsv, getPlatformMeta } from "./utils.js";
+import {
+  DEFAULT_EXPECTED_EVENTS,
+  buildAuditSummary,
+  buildChecklist,
+  buildIssues,
+  buildReportHtml,
+} from "./audit.js";
+import {
+  escapeHtml,
+  groupEventsBySession,
+  eventsToCsv,
+  getPlatformMeta,
+} from "./utils.js";
 
 // --- State & DOM Elements ---
 let currentPlatform = "All"; // 'All', 'Meta', 'TikTok', 'Diagnostics'
@@ -9,6 +21,7 @@ let searchQuery = "";
 let selectedTabId = "all";
 let isSessionView = false;
 let sortConfig = { key: "timestamp", direction: "desc" };
+let currentView = "live";
 
 const renderer = new PixelRenderer("events-table-body", "empty-state");
 
@@ -19,6 +32,7 @@ const settingsBtn = document.getElementById("settings-btn");
 const sessionToggle = document.getElementById("session-view-toggle");
 const exportJsonBtn = document.getElementById("export-json-btn");
 const exportCsvBtn = document.getElementById("export-csv-btn");
+const exportReportBtn = document.getElementById("export-report-btn");
 const mobileMenuToggle = document.getElementById("mobile-menu-toggle");
 const sidebar = document.querySelector(".sidebar");
 
@@ -33,13 +47,34 @@ const tabMeta = document.getElementById("tab-meta");
 const tabTikTok = document.getElementById("tab-tiktok");
 const tabGoogle = document.getElementById("tab-google");
 const tabDiagnostics = document.getElementById("tab-diagnostics");
+const viewLive = document.getElementById("view-live");
+const viewChecklist = document.getElementById("view-checklist");
+const viewIssues = document.getElementById("view-issues");
+const viewReport = document.getElementById("view-report");
 
 const filterBtns = [tabAll, tabMeta, tabTikTok, tabGoogle, tabDiagnostics];
+const viewBtns = [viewLive, viewChecklist, viewIssues, viewReport];
 
 const heroSection = document.getElementById("hero-section");
 const heroEyebrow = document.getElementById("hero-eyebrow");
 const heroTitle = document.getElementById("hero-title");
 const heroSubtitle = document.getElementById("hero-subtitle");
+const startAuditBtn = document.getElementById("start-audit-btn");
+const startReloadBtn = document.getElementById("start-reload-btn");
+const auditSessionStatus = document.getElementById("audit-session-status");
+const checklistList = document.getElementById("checklist-list");
+const issuesList = document.getElementById("issues-list");
+const issuesSummary = document.getElementById("issues-summary");
+const reportPreview = document.getElementById("report-preview");
+const downloadReportBtn = document.getElementById("download-report-btn");
+const saveExpectationsBtn = document.getElementById("save-expectations-btn");
+const expectedInputs = {
+  Meta: document.getElementById("expected-meta-pixel"),
+  TikTok: document.getElementById("expected-tiktok-pixel"),
+  GA4: document.getElementById("expected-ga4-pixel"),
+  "Google Ads": document.getElementById("expected-google-pixel"),
+};
+const expectedEventsInput = document.getElementById("expected-events-input");
 
 // --- UI Logic ---
 
@@ -97,7 +132,9 @@ function updateUI() {
     return 0;
   });
 
+  renderAuditSessionStatus();
   renderTagsSummary(filteredEvents);
+  renderWorkflowPanels(filteredEvents);
 
   if (isSessionView) {
     const windowMs = store.settings?.sessionWindow || 1800000;
@@ -106,6 +143,157 @@ function updateUI() {
   } else {
     renderer.render(filteredEvents, false);
   }
+}
+
+function renderAuditSessionStatus() {
+  const activeRunId = store.auditState?.activeAuditRunId;
+  const auditRun = activeRunId ? store.auditRuns?.[activeRunId] : null;
+  const tabs = store.auditState?.auditTabs || {};
+  const activeTab = Object.values(tabs).find(
+    (tab) => tab.auditRunId === activeRunId,
+  );
+
+  if (!auditRun && !activeTab) {
+    auditSessionStatus.textContent =
+      "No audit session is active. Start from a target website tab.";
+    return;
+  }
+
+  const domain = auditRun?.domain || activeTab?.hostname || "current tab";
+  const reloadNote = activeTab?.startedAfterLoad
+    ? " Started after page load; use Start + Reload for first-page events."
+    : "";
+  auditSessionStatus.textContent = `Auditing ${domain}.${reloadNote}`;
+}
+
+function renderWorkflowPanels(events) {
+  const expectedPixels = store.settings?.expectedPixels || {};
+  const expectedEvents = store.settings?.expectedEvents || DEFAULT_EXPECTED_EVENTS;
+  const activeRunId = store.auditState?.activeAuditRunId;
+  const auditRun = activeRunId ? store.auditRuns?.[activeRunId] : null;
+
+  Object.entries(expectedInputs).forEach(([platform, input]) => {
+    if (input && document.activeElement !== input) {
+      input.value = expectedPixels[platform] || "";
+    }
+  });
+  if (expectedEventsInput && document.activeElement !== expectedEventsInput) {
+    expectedEventsInput.value = expectedEvents
+      .map((event) => `${event.platform}:${event.eventName}`)
+      .join("\n");
+  }
+
+  renderChecklist(events, expectedEvents, expectedPixels);
+  renderIssues(events, expectedEvents, expectedPixels);
+  renderReportPreview(events, auditRun, expectedEvents, expectedPixels);
+}
+
+function renderChecklist(events, expectedEvents, expectedPixels) {
+  const checklist = buildChecklist(events, expectedEvents, expectedPixels);
+  checklistList.innerHTML = checklist
+    .map((item) => {
+      const statusLabel = item.status.replace("_", " ");
+      const issueText =
+        item.issues.length > 0
+          ? item.issues.map(escapeHtml).join("<br />")
+          : item.found
+            ? "Observed in this audit session."
+            : "Expected event was not observed.";
+      return `
+        <div class="qa-row">
+          <div class="platform-label">${platformIcon(item.platform)}<span>${escapeHtml(item.platform)}</span></div>
+          <strong class="body-sm">${escapeHtml(item.eventName)}</strong>
+          <span class="status-pill status-${item.status}">${escapeHtml(statusLabel)}</span>
+          <span class="body-sm">${issueText}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderIssues(events, expectedEvents, expectedPixels) {
+  const issues = buildIssues(events, expectedEvents, expectedPixels);
+  const summary = buildAuditSummary(events);
+  issuesSummary.className = `qa-section color-block ${
+    issues.length > 0 ? "bg-tiktok" : "bg-mint"
+  }`;
+  issuesSummary.innerHTML = `
+    <p class="eyebrow">Issues</p>
+    <h3 class="headline">${issues.length > 0 ? "Warnings that need attention before launch." : "No blocking issues found so far."}</h3>
+    <p class="body-lg">${summary.total} events observed, ${summary.duplicates} duplicate warning(s), ${summary.redactions} privacy redaction(s).</p>
+  `;
+
+  if (issues.length === 0) {
+    issuesList.innerHTML = `
+      <div class="qa-row compact">
+        <span class="status-pill status-valid">valid</span>
+        <strong class="body-sm">Audit clean</strong>
+        <span class="body-sm">No warnings detected for the current filters.</span>
+        <span class="caption">Keep triggering the expected funnel steps.</span>
+      </div>
+    `;
+    return;
+  }
+
+  issuesList.innerHTML = issues
+    .map(
+      (issue) => `
+        <div class="qa-row compact">
+          <span class="status-pill status-${issue.severity === "error" ? "error" : "warning"}">${escapeHtml(issue.severity)}</span>
+          <div class="platform-label">${platformIcon(issue.platform)}<span>${escapeHtml(issue.platform)}</span></div>
+          <strong class="body-sm">${escapeHtml(issue.eventName)}</strong>
+          <span class="body-sm">${escapeHtml(issue.message)}</span>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function renderReportPreview(events, auditRun, expectedEvents, expectedPixels) {
+  const summary = buildAuditSummary(events);
+  const issues = buildIssues(events, expectedEvents, expectedPixels);
+  const platforms = [...new Set(events.map((event) => event.platform))];
+  const pixels = [...new Set(events.map((event) => event.pixelId).filter(Boolean))];
+  const duplicateWarnings = issues.filter((issue) =>
+    issue.message.includes("Duplicate firing"),
+  ).length;
+  const missingParamIssues = issues.filter((issue) =>
+    issue.message.includes("Missing required parameter"),
+  ).length;
+
+  reportPreview.innerHTML = `
+    <div class="qa-row compact">
+      <span class="caption">Domain</span>
+      <strong class="body-sm">${escapeHtml(auditRun?.domain || "No active audit")}</strong>
+      <span class="caption">Events</span>
+      <strong class="body-sm">${summary.total}</strong>
+    </div>
+    <div class="qa-row compact">
+      <span class="caption">Platforms</span>
+      <strong class="body-sm">${escapeHtml(platforms.join(", ") || "None")}</strong>
+      <span class="caption">Pixel IDs</span>
+      <strong class="body-sm">${escapeHtml(pixels.join(", ") || "None")}</strong>
+    </div>
+    <div class="qa-row compact">
+      <span class="caption">Issues</span>
+      <strong class="body-sm">${issues.length}</strong>
+      <span class="caption">Redactions</span>
+      <strong class="body-sm">${summary.redactions}</strong>
+    </div>
+    <div class="qa-row compact">
+      <span class="caption">Duplicates</span>
+      <strong class="body-sm">${duplicateWarnings}</strong>
+      <span class="caption">Missing Params</span>
+      <strong class="body-sm">${missingParamIssues}</strong>
+    </div>
+  `;
+}
+
+function platformIcon(platform) {
+  const meta = getPlatformMeta(platform);
+  return meta.icon
+    ? `<img src="${escapeHtml(meta.icon)}" width="16" height="16" aria-hidden="true" />`
+    : "";
 }
 
 function exportData(format) {
@@ -138,6 +326,29 @@ function exportData(format) {
   URL.revokeObjectURL(url);
 }
 
+function exportReport() {
+  const events = store.getAllEvents();
+  const activeRunId = store.auditState?.activeAuditRunId;
+  const auditRun = activeRunId ? store.auditRuns?.[activeRunId] : null;
+  const expectedPixels = store.settings?.expectedPixels || {};
+  const expectedEvents = store.settings?.expectedEvents || DEFAULT_EXPECTED_EVENTS;
+
+  const content = buildReportHtml({
+    events,
+    auditRun,
+    expectedEvents,
+    expectedPixels,
+  });
+  const filename = `omnisignal-report-${new Date().toISOString().split("T")[0]}.html`;
+  const blob = new Blob([content], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function updateTabSelector(eventsMap) {
   const currentVal = tabSelector.value;
   tabSelector.innerHTML = '<option value="all">All Browser Tabs</option>';
@@ -148,7 +359,7 @@ function updateTabSelector(eventsMap) {
 
     const tabEvents = eventsMap[id];
     const latestUrl =
-      tabEvents.length > 0 ? new URL(tabEvents[0].url).hostname : `Tab ${id}`;
+      tabEvents.length > 0 ? getHostname(tabEvents[0].url) : `Tab ${id}`;
 
     const option = document.createElement("option");
     option.value = id;
@@ -161,6 +372,14 @@ function updateTabSelector(eventsMap) {
   } else {
     tabSelector.value = "all";
     selectedTabId = "all";
+  }
+}
+
+function getHostname(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (_e) {
+    return "Unknown URL";
   }
 }
 
@@ -178,6 +397,18 @@ function setPlatform(platform, btn) {
     heroSection.className = `hero color-block ${meta.bgClass}`;
   }
 
+  updateUI();
+}
+
+function setView(view, btn) {
+  currentView = view;
+  viewBtns.forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+
+  document.querySelectorAll(".view-pane").forEach((pane) => {
+    pane.classList.remove("active");
+  });
+  document.getElementById(`${view}-view-pane`)?.classList.add("active");
   updateUI();
 }
 
@@ -209,10 +440,10 @@ function renderTagsSummary(events) {
     const card = document.createElement("div");
     card.className = "tag-card";
     card.innerHTML = `
-      <img src="${meta.icon}" width="24" height="24" />
+      <img src="${escapeHtml(meta.icon)}" width="24" height="24" />
       <div>
-        <div class="tag-platform">${info.platform}</div>
-        <div class="caption">${pixelId} <span class="tag-count">(${info.count})</span></div>
+        <div class="tag-platform">${escapeHtml(info.platform)}</div>
+        <div class="caption">${escapeHtml(pixelId)} <span class="tag-count">(${info.count})</span></div>
       </div>
     `;
     card.addEventListener("click", () => {
@@ -238,6 +469,35 @@ tabGoogle.addEventListener("click", () => setPlatform("Google", tabGoogle));
 tabDiagnostics.addEventListener("click", () =>
   setPlatform("Diagnostics", tabDiagnostics),
 );
+
+viewLive.addEventListener("click", () => setView("live", viewLive));
+viewChecklist.addEventListener("click", () =>
+  setView("checklist", viewChecklist),
+);
+viewIssues.addEventListener("click", () => setView("issues", viewIssues));
+viewReport.addEventListener("click", () => setView("report", viewReport));
+
+startAuditBtn.addEventListener("click", async () => {
+  startAuditBtn.textContent = "Starting...";
+  const result = await store.startAudit({ reload: false });
+  startAuditBtn.textContent = "Start Audit";
+  if (!result?.ok) {
+    auditSessionStatus.textContent =
+      result?.error || "Open a website tab, then start audit again.";
+  }
+  updateUI();
+});
+
+startReloadBtn.addEventListener("click", async () => {
+  startReloadBtn.textContent = "Reloading...";
+  const result = await store.startAudit({ reload: true });
+  startReloadBtn.textContent = "Start + Reload";
+  if (!result?.ok) {
+    auditSessionStatus.textContent =
+      result?.error || "Open a website tab, then start audit again.";
+  }
+  updateUI();
+});
 
 searchInput.addEventListener("input", (e) => {
   searchQuery = e.target.value;
@@ -286,6 +546,39 @@ document.querySelectorAll("th.sortable").forEach((th) => {
 
 exportJsonBtn.addEventListener("click", () => exportData("json"));
 exportCsvBtn.addEventListener("click", () => exportData("csv"));
+exportReportBtn.addEventListener("click", exportReport);
+downloadReportBtn.addEventListener("click", exportReport);
+
+saveExpectationsBtn.addEventListener("click", async () => {
+  const expectedPixels = {};
+  Object.entries(expectedInputs).forEach(([platform, input]) => {
+    if (input.value.trim()) expectedPixels[platform] = input.value.trim();
+  });
+  const expectedEvents = parseExpectedEvents(expectedEventsInput.value);
+  await store.saveSettings({
+    expectedPixels,
+    expectedEvents,
+  });
+  await store.updateActiveAuditRun({ expectedPixels, expectedEvents });
+  updateUI();
+});
+
+function parseExpectedEvents(rawValue) {
+  const parsed = String(rawValue || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [platform, ...eventParts] = line.split(":");
+      return {
+        platform: platform.trim(),
+        eventName: eventParts.join(":").trim(),
+      };
+    })
+    .filter((event) => event.platform && event.eventName);
+
+  return parsed.length > 0 ? parsed : DEFAULT_EXPECTED_EVENTS;
+}
 
 clearBtn.addEventListener("click", async () => {
   const confirmed = await showConfirm(

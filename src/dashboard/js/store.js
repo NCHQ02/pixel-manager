@@ -5,15 +5,23 @@ export class PixelStore {
   constructor() {
     this.events = {};
     this.settings = { maxEvents: 500, sessionWindow: 1800000 };
+    this.auditRuns = {};
+    this.auditState = { auditTabs: {}, activeAuditRunId: null };
     this.listeners = [];
     this.init();
   }
 
   async init() {
     // Initial load
-    const result = await chrome.storage.local.get(["trackedEvents", "settings"]);
+    const result = await chrome.storage.local.get([
+      "trackedEvents",
+      "settings",
+      "auditRuns",
+    ]);
     this.events = result.trackedEvents || {};
     if (result.settings) this.settings = result.settings;
+    this.auditRuns = result.auditRuns || {};
+    await this.refreshAuditState();
     this.notify();
 
     // Listen for storage changes
@@ -28,14 +36,54 @@ export class PixelStore {
           this.settings = changes.settings.newValue || this.settings;
           shouldNotify = true;
         }
+        if (changes.auditRuns) {
+          this.auditRuns = changes.auditRuns.newValue || {};
+          shouldNotify = true;
+        }
         if (shouldNotify) this.notify();
       }
     });
   }
 
+  async refreshAuditState() {
+    try {
+      const state = await chrome.runtime.sendMessage({ type: "GET_AUDIT_STATE" });
+      if (state) {
+        this.auditState = state;
+        this.auditRuns = state.auditRuns || this.auditRuns;
+      }
+    } catch (_e) {}
+  }
+
+  async startAudit({ reload = false } = {}) {
+    const result = await chrome.runtime.sendMessage({
+      type: "START_AUDIT",
+      reload,
+    });
+    await this.refreshAuditState();
+    this.notify();
+    return result;
+  }
+
   async saveSettings(newSettings) {
     this.settings = { ...this.settings, ...newSettings };
     await chrome.storage.local.set({ settings: this.settings });
+  }
+
+  async updateActiveAuditRun(patch) {
+    const activeRunId = this.auditState?.activeAuditRunId;
+    if (!activeRunId) return;
+
+    const auditRuns = {
+      ...this.auditRuns,
+      [activeRunId]: {
+        ...(this.auditRuns[activeRunId] || { id: activeRunId }),
+        ...patch,
+      },
+    };
+    this.auditRuns = auditRuns;
+    await chrome.storage.local.set({ auditRuns });
+    this.notify();
   }
 
   /**
@@ -45,11 +93,11 @@ export class PixelStore {
   subscribe(callback) {
     this.listeners.push(callback);
     // Trigger immediately with current state
-    callback(this.events);
+    callback(this.events, this);
   }
 
   notify() {
-    this.listeners.forEach((callback) => callback(this.events));
+    this.listeners.forEach((callback) => callback(this.events, this));
   }
 
   /**
@@ -67,8 +115,9 @@ export class PixelStore {
    * Clear all stored events
    */
   async clearAll() {
-    await chrome.storage.local.set({ trackedEvents: {} });
+    await chrome.storage.local.set({ trackedEvents: {}, auditRuns: {} });
     this.events = {};
+    this.auditRuns = {};
     this.notify();
   }
 }

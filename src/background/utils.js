@@ -17,6 +17,10 @@
  * @property {number} timestamp
  * @property {string} status
  * @property {boolean} isDiagnostic
+ * @property {string[]} issues
+ * @property {number} duplicateCount
+ * @property {string} auditRunId
+ * @property {"network"|"datalayer"} source
  */
 
 // --- Storage Mutex Queue ---
@@ -27,20 +31,26 @@ let updateQueue = Promise.resolve();
  * @param {(events: Record<string, TrackedEvent[]>, settings: Settings) => boolean} updateFn 
  */
 export function enqueueStorageUpdate(updateFn) {
-  updateQueue = updateQueue.then(() => {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(["trackedEvents", "settings"], (res) => {
-        const events = res.trackedEvents || {};
-        const settings = res.settings || { maxEvents: 500 };
-        const shouldSave = updateFn(events, settings);
-        if (shouldSave !== false) {
-          chrome.storage.local.set({ trackedEvents: events }, () => resolve());
-        } else {
-          resolve();
-        }
+  updateQueue = updateQueue
+    .then(() => {
+      return new Promise((resolve) => {
+        chrome.storage.local.get(["trackedEvents", "settings"], (res) => {
+          const events = res.trackedEvents || {};
+          const settings = res.settings || { maxEvents: 500 };
+          const shouldSave = updateFn(events, settings);
+          if (shouldSave !== false) {
+            chrome.storage.local.set({ trackedEvents: events }, () =>
+              resolve(),
+            );
+          } else {
+            resolve();
+          }
+        });
       });
+    })
+    .catch((err) => {
+      console.error("[OmniSignal] Storage update failed:", err);
     });
-  });
 }
 
 // --- Deduplication Logic ---
@@ -69,12 +79,116 @@ export function generateStablePayloadHash(obj) {
   delete clone._rawParsed;
   delete clone._rawBatchedString;
 
-  const sortedKeys = Object.keys(clone).sort();
-  const stableObj = {};
-  for (const k of sortedKeys) {
-    stableObj[k] = clone[k];
+  return JSON.stringify(sortForStableHash(clone));
+}
+
+function sortForStableHash(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortForStableHash(item));
   }
-  return JSON.stringify(stableObj);
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const sorted = {};
+  Object.keys(value)
+    .sort()
+    .forEach((key) => {
+      sorted[key] = sortForStableHash(value[key]);
+    });
+  return sorted;
+}
+
+const EMAIL_REGEX = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+const PHONE_REGEX = /(\+?\d{1,4}[\s-])?\(?\d{3}\)?[\s-]\d{3}[\s-]\d{4}/;
+const SHA256_REGEX = /^[a-f0-9]{64}$/i;
+const SENSITIVE_KEY_REGEX =
+  /(^|_|\b)(email|e-mail|phone|mobile|first_name|last_name|fullname|full_name|address|street|city|zip|postcode|dob|birth|external_id)(_|$|\b)/i;
+
+function isSensitivePlaintextValue(key, value) {
+  if (typeof value !== "string") return false;
+  if (SHA256_REGEX.test(value.trim())) return false;
+  if (SENSITIVE_KEY_REGEX.test(key) && value.trim().length > 0) return true;
+  return EMAIL_REGEX.test(value) || PHONE_REGEX.test(value);
+}
+
+/**
+ * Redacts likely plaintext PII in stored URLs while preserving audit context.
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+export function sanitizeCapturedUrl(rawUrl = "") {
+  if (!rawUrl) return "";
+
+  try {
+    const parsed = new URL(rawUrl);
+    parsed.searchParams.forEach((value, key) => {
+      if (isSensitivePlaintextValue(key, value)) {
+        parsed.searchParams.set(key, "[redacted sensitive value]");
+      }
+    });
+    return parsed.toString();
+  } catch (_e) {
+    return isSensitivePlaintextValue("url", rawUrl)
+      ? "[redacted sensitive URL]"
+      : rawUrl;
+  }
+}
+
+/**
+ * Redacts likely plaintext PII before it is persisted locally.
+ * @param {Object} data
+ * @returns {Object}
+ */
+export function sanitizeCapturedData(data) {
+  const redactions = [];
+  const seen = new WeakSet();
+
+  const sanitize = (value, path = "data") => {
+    if (Array.isArray(value)) {
+      return value.map((item, index) => sanitize(item, `${path}[${index}]`));
+    }
+
+    if (!value || typeof value !== "object") {
+      return sanitizePrimitive(value, path);
+    }
+
+    if (seen.has(value)) return "[Circular Reference]";
+    seen.add(value);
+
+    const clean = {};
+    Object.entries(value).forEach(([key, nestedValue]) => {
+      const nestedPath = `${path}.${key}`;
+      clean[key] = shouldRedactKeyValue(key, nestedValue)
+        ? redactValue(nestedPath, "sensitive key")
+        : sanitize(nestedValue, nestedPath);
+    });
+    return clean;
+  };
+
+  const sanitizePrimitive = (value, path) => {
+    if (typeof value !== "string") return value;
+    if (SHA256_REGEX.test(value.trim())) return value;
+    if (EMAIL_REGEX.test(value)) return redactValue(path, "email");
+    if (PHONE_REGEX.test(value)) return redactValue(path, "phone");
+    return value;
+  };
+
+  const shouldRedactKeyValue = (key, value) => {
+    return isSensitivePlaintextValue(key, value);
+  };
+
+  const redactValue = (path, reason) => {
+    redactions.push({ path, reason });
+    return `[redacted ${reason}]`;
+  };
+
+  const sanitized = sanitize(data || {});
+  if (redactions.length > 0) {
+    sanitized._privacyRedactions = redactions;
+  }
+  return sanitized;
 }
 
 /**

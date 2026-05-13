@@ -1,0 +1,9 @@
+{
+  "name": "omnisignal-pixel-tracker",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test ./tests/parser-fixtures.test.js ./tests/audit-workflow.test.js"
+  }
+}

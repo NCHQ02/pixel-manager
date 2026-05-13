@@ -97,23 +97,39 @@ export function parseGoogleRequest(url, details) {
 
   // 2. Google Ads Conversion & Remarketing
   if (
-    hostname.includes("google.com") &&
-    (pathname.includes("/pagead/conversion") || pathname.includes("/ads/ga-audiences"))
+    (hostname.includes("google.com") ||
+      hostname.includes("googleadservices.com") ||
+      hostname.includes("googleads.g.doubleclick.net") ||
+      hostname.includes("doubleclick.net")) &&
+    (pathname.includes("/pagead/conversion") ||
+      pathname.includes("/ads/ga-audiences") ||
+      pathname.includes("/pagead/1p-conversion") ||
+      pathname.includes("/ccm/collect") ||
+      pathname.includes("/conversion"))
   ) {
     const eventData = {};
     url.searchParams.forEach((value, key) => {
       eventData[key] = value;
     });
 
+    const conversionLabel =
+      eventData.lbl || eventData.label || eventData.label_id || eventData.cv;
     let pixelId = "Unknown";
     const match = pathname.match(/(AW-\d+)/);
     if (match) {
       pixelId = match[1];
     } else {
-      pixelId = eventData.sst_id || eventData.lbl || "Unknown";
+      pixelId =
+        eventData.sst_id ||
+        eventData.awid ||
+        eventData.gclsrc ||
+        conversionLabel ||
+        "Unknown";
     }
 
-    const eventName = eventData.lbl ? `Conversion (${eventData.lbl})` : "Remarketing";
+    const eventName = conversionLabel
+      ? `Conversion (${conversionLabel})`
+      : "Remarketing";
 
     return {
       platform: "Google Ads",

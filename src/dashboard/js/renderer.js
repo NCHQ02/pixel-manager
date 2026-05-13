@@ -3,6 +3,7 @@ import {
   escapeHtml,
   extractRichDetails,
   auditEvent,
+  classifyEventStatus,
   detectAdvancedMatching,
   getPlatformMeta,
 } from "./utils.js";
@@ -64,7 +65,7 @@ export class PixelRenderer {
         <td colspan="5">
           <div class="session-divider">
             <span class="eyebrow">${formatTime(session.startTime)}</span>
-            <span class="session-url body-sm">${session.hostname}</span>
+            <span class="session-url body-sm">${escapeHtml(session.hostname)}</span>
             <span class="badge">${session.events.length} events</span>
           </div>
         </td>
@@ -95,27 +96,33 @@ export class PixelRenderer {
     const meta = getPlatformMeta(event.platform);
     const warnings = auditEvent(event);
     const hasWarning = warnings.length > 0;
+    const status = classifyEventStatus(event, warnings);
     const amKeys = detectAdvancedMatching(event.eventData, event.platform);
     const hasAM = amKeys.length > 0;
+    const platformLabel = escapeHtml(event.platform);
+    const eventName = escapeHtml(event.eventName);
+    const pixelId = escapeHtml(event.pixelId);
 
     tr.innerHTML = `
       <td class="caption time-col">${formatTime(event.timestamp)}</td>
-      <td class="method-col"><span class="method-badge">${event.method || "GET"}</span></td>
+      <td class="method-col"><span class="method-badge">${escapeHtml(event.method || "GET")}</span></td>
       <td class="platform-col">
         <div class="platform-label">
-          <img src="${meta.icon}" width="16" height="16" aria-hidden="true" />
-          <span>${event.platform}</span>
+          <img src="${escapeHtml(meta.icon)}" width="16" height="16" aria-hidden="true" />
+          <span>${platformLabel}</span>
         </div>
       </td>
       <td class="event-col">
         <div style="display: flex; flex-direction: column; position: relative;">
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-weight: 600;" class="body-sm">${event.eventName}</span>
+            <span style="font-weight: 600;" class="body-sm">${eventName}</span>
+            <span class="status-pill status-${status.key}">${escapeHtml(status.label)}</span>
             ${hasAM ? '<span class="badge-am">AM</span>' : ""}
+            ${event.duplicateCount ? `<span class="badge-am" style="background:#B45309">DUP ${event.duplicateCount}</span>` : ""}
             ${event.eventData.gcs ? `<span class="badge-am" style="background:#4A90E2">GCS: ${escapeHtml(event.eventData.gcs)}</span>` : ""}
             ${hasWarning ? '<span class="warning-dot"></span>' : ""}
           </div>
-          <span class="caption" style="opacity: 0.6; font-size: 10px;">ID: ${event.pixelId}</span>
+          <span class="caption" style="opacity: 0.6; font-size: 10px;">ID: ${pixelId}</span>
         </div>
       </td>
       <td class="action-col">
@@ -216,7 +223,7 @@ export class PixelRenderer {
         <div class="audit-banner">
           <p class="eyebrow" style="color: #c53030; margin-bottom: 8px;">Audit Warnings</p>
           <ul class="audit-list">
-            ${warnings.map((w) => `<li class="body-sm">${w}</li>`).join("")}
+            ${warnings.map((w) => `<li class="body-sm">${escapeHtml(w)}</li>`).join("")}
           </ul>
         </div>
       `;
@@ -227,7 +234,7 @@ export class PixelRenderer {
         ${auditHtml}
         <div class="details-header">
           <h3 class="headline">Event Details</h3>
-          <span class="event-id caption">ID: ${event.id}</span>
+          <span class="event-id caption">ID: ${escapeHtml(event.id)}</span>
         </div>
         
         <div class="details-grid">

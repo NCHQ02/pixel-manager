@@ -1,3 +1,6 @@
+if (!globalThis.__OMNI_SIGNAL_CONTENT_LOADED) {
+globalThis.__OMNI_SIGNAL_CONTENT_LOADED = true;
+
 // --- DataLayer Interception ---
 const script = document.createElement("script");
 script.src = chrome.runtime.getURL("src/content/inject.js");
@@ -26,6 +29,11 @@ let overlayCount = 0;
 
 function createOverlay() {
   if (overlayElement) return;
+  const existingOverlay = document.getElementById("omni-signal-overlay");
+  if (existingOverlay) {
+    overlayElement = existingOverlay;
+    return;
+  }
 
   overlayElement = document.createElement("div");
   overlayElement.id = "omni-signal-overlay";
@@ -137,3 +145,4 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
+}

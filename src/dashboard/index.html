@@ -98,6 +98,14 @@
           </button>
 
           <p class="eyebrow nav-title" style="margin-top: 32px">
+            QA Workspace
+          </p>
+          <button id="view-live" class="filter-btn active">Live Stream</button>
+          <button id="view-checklist" class="filter-btn">Audit Checklist</button>
+          <button id="view-issues" class="filter-btn">Issues</button>
+          <button id="view-report" class="filter-btn">Report</button>
+
+          <p class="eyebrow nav-title" style="margin-top: 32px">
             Workspace Scope
           </p>
           <div style="padding: 0 8px">
@@ -137,6 +145,18 @@
                 CSV
               </button>
             </div>
+            <button
+              id="export-report-btn"
+              class="button-pill button-outline"
+              style="
+                width: 100%;
+                margin-bottom: 8px;
+                padding: 10px;
+                font-size: 12px;
+              "
+            >
+              Export Report
+            </button>
 
             <button
               id="settings-btn"
@@ -166,14 +186,18 @@
           </div>
 
           <div class="copyright caption" style="margin-top: 16px">
-            © 2026 / All Systems Operational
+            (c) 2026 / All Systems Operational
           </div>
         </div>
       </aside>
 
       <!-- Main Workspace -->
       <main class="workspace">
-        <button id="mobile-menu-toggle" class="mobile-menu-toggle">
+        <button
+          id="mobile-menu-toggle"
+          class="mobile-menu-toggle"
+          aria-label="Open filters"
+        >
           <svg
             width="24"
             height="24"
@@ -198,10 +222,33 @@
             No secrets, no obfuscation. Watch data dispatch from your browser as
             it happens.
           </p>
+          <div class="hero-actions">
+            <button id="start-audit-btn" class="button-pill button-primary">
+              Start Audit
+            </button>
+            <button id="start-reload-btn" class="button-pill button-outline">
+              Start + Reload
+            </button>
+          </div>
+          <div id="audit-session-status" class="audit-session-status caption">
+            No audit session is active.
+          </div>
         </header>
 
+        <section
+          id="tags-summary-container"
+          class="tags-summary"
+          style="display: none"
+        >
+          <div class="section-heading-row">
+            <p class="eyebrow nav-title" style="margin: 0">Detected Tags</p>
+            <span class="caption">Click a tag to isolate events</span>
+          </div>
+          <div id="tags-summary-list" class="tags-summary-list"></div>
+        </section>
+
         <!-- Data Table -->
-        <section class="data-section">
+        <section id="live-view-pane" class="data-section view-pane active">
           <div class="table-wrapper">
             <table id="events-table">
               <thead>
@@ -299,6 +346,66 @@
             </p>
           </div>
         </section>
+
+        <section id="checklist-view-pane" class="view-pane">
+          <div class="qa-section color-block bg-cream">
+            <p class="eyebrow">Audit Checklist</p>
+            <h3 class="headline">Expected vs actual tracking events.</h3>
+            <div class="expectation-grid">
+              <label class="expectation-field body-sm">
+                Meta Pixel ID
+                <input id="expected-meta-pixel" class="text-input" placeholder="1234567890" />
+              </label>
+              <label class="expectation-field body-sm">
+                TikTok Pixel ID
+                <input id="expected-tiktok-pixel" class="text-input" placeholder="CABC123" />
+              </label>
+              <label class="expectation-field body-sm">
+                GA4 Measurement ID
+                <input id="expected-ga4-pixel" class="text-input" placeholder="G-XXXXXXX" />
+              </label>
+              <label class="expectation-field body-sm">
+                Google Ads ID / Label
+                <input id="expected-google-pixel" class="text-input" placeholder="AW-123456789" />
+              </label>
+            </div>
+            <label class="expectation-field body-sm">
+              Expected Events
+              <textarea
+                id="expected-events-input"
+                class="text-input expectation-textarea"
+                placeholder="Meta:Purchase&#10;TikTok:CompletePayment&#10;GA4:purchase"
+              ></textarea>
+            </label>
+            <button id="save-expectations-btn" class="button-pill button-primary">
+              Save Expectations
+            </button>
+          </div>
+          <div id="checklist-list" class="qa-list"></div>
+        </section>
+
+        <section id="issues-view-pane" class="view-pane">
+          <div id="issues-summary" class="qa-section color-block bg-tiktok">
+            <p class="eyebrow">Issues</p>
+            <h3 class="headline">Warnings that need attention before launch.</h3>
+          </div>
+          <div id="issues-list" class="qa-list"></div>
+        </section>
+
+        <section id="report-view-pane" class="view-pane">
+          <div class="qa-section color-block bg-cream">
+            <p class="eyebrow">Report</p>
+            <h3 class="headline">Client-ready audit summary.</h3>
+            <p class="body-lg">
+              Export an HTML report with detected platforms, pixel IDs, issues,
+              checklist status, and a raw payload appendix.
+            </p>
+            <button id="download-report-btn" class="button-pill button-primary">
+              Export HTML Report
+            </button>
+          </div>
+          <div id="report-preview" class="report-preview"></div>
+        </section>
       </main>
     </div>
 
@@ -338,6 +445,7 @@
           <h3 class="headline" style="margin: 0">Settings</h3>
           <button
             id="close-settings-btn"
+            aria-label="Close settings"
             style="
               background: none;
               border: none;
@@ -345,7 +453,7 @@
               font-size: 18px;
             "
           >
-            ✕
+            x
           </button>
         </div>
 

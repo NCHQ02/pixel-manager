@@ -224,8 +224,10 @@ export function extractRichDetails(eventData, platform) {
         details["GCLID"] = eventData.gclid || eventData.gclaw;
       if (eventData.gbraid) details["GBRAID"] = eventData.gbraid;
       if (eventData.wbraid) details["WBRAID"] = eventData.wbraid;
-      if (eventData.val) details["Conversion Value"] = eventData.val;
-      if (eventData.cu) details["Currency"] = eventData.cu;
+      if (eventData.val || eventData.value)
+        details["Conversion Value"] = eventData.val || eventData.value;
+      if (eventData.cu || eventData.currency_code)
+        details["Currency"] = eventData.cu || eventData.currency_code;
     } else if (platform === "Floodlight") {
       if (eventData.src) details["Advertiser ID"] = eventData.src;
       if (eventData.type) details["Group Tag"] = eventData.type;
@@ -349,6 +351,12 @@ export function auditEvent(event) {
   const warnings = [];
   const { platform, eventName, eventData } = event;
 
+  if (eventData._privacyRedactions?.length > 0) {
+    warnings.push(
+      `${eventData._privacyRedactions.length} plaintext sensitive value(s) were redacted before local storage.`,
+    );
+  }
+
   if (eventData._duplicateWarning) {
     warnings.push(
       "Duplicate Firing Detected: This event was fired multiple times simultaneously. Check for duplicate pixel installations or double tag triggers.",
@@ -414,6 +422,41 @@ export function auditEvent(event) {
   return warnings;
 }
 
+/**
+ * Classifies an event into the user-facing audit status buckets.
+ * @param {object} event
+ * @param {Array} warnings
+ * @returns {{key: string, label: string}}
+ */
+export function classifyEventStatus(event, warnings = auditEvent(event)) {
+  if (event.isDiagnostic || event.status === "diagnostic") {
+    return { key: "diagnostic", label: "Diagnostic" };
+  }
+
+  if (event.eventData?._duplicateWarning || event.status === "duplicate") {
+    return { key: "duplicate", label: "Duplicate" };
+  }
+
+  if (event.status === "missing_params") {
+    return { key: "missing", label: "Missing Params" };
+  }
+
+  if (
+    warnings.some((warning) =>
+      /^Missing/i.test(String(warning)) ||
+      String(warning).includes("Missing '"),
+    )
+  ) {
+    return { key: "missing", label: "Missing Params" };
+  }
+
+  if (warnings.length > 0 || event.status === "warning") {
+    return { key: "warning", label: "Warning" };
+  }
+
+  return { key: "valid", label: "Valid" };
+}
+
 
 /**
  * Groups events by Session (Tab ID + Inactivity window)
@@ -442,7 +485,7 @@ export function groupEventsBySession(events, windowMs = 1800000) {
     let currentSession = {
       id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       url: sorted[0].url,
-      hostname: new URL(sorted[0].url).hostname,
+      hostname: safeHostname(sorted[0].url),
       startTime: sorted[0].timestamp,
       endTime: sorted[0].timestamp,
       events: [sorted[0]],
@@ -461,7 +504,7 @@ export function groupEventsBySession(events, windowMs = 1800000) {
         currentSession = {
           id: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           url: event.url,
-          hostname: new URL(event.url).hostname,
+          hostname: safeHostname(event.url),
           startTime: event.timestamp,
           endTime: event.timestamp,
           events: [event],
@@ -472,6 +515,14 @@ export function groupEventsBySession(events, windowMs = 1800000) {
   });
 
   return allSessions.sort((a, b) => b.startTime - a.startTime);
+}
+
+function safeHostname(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (_e) {
+    return "Unknown URL";
+  }
 }
 
 /**
@@ -485,6 +536,9 @@ export function eventsToCsv(events) {
     "Event Name",
     "Pixel ID",
     "Method",
+    "Status",
+    "Duplicate Count",
+    "Source",
     "URL",
     "Raw Data",
   ];
@@ -494,11 +548,15 @@ export function eventsToCsv(events) {
     e.eventName,
     e.pixelId,
     e.method || "GET",
+    e.status || classifyEventStatus(e).key,
+    e.duplicateCount || 0,
+    e.source || "network",
     e.url,
-    JSON.stringify(e.eventData).replace(/"/g, '""'),
+    JSON.stringify(e.eventData),
   ]);
 
+  const escapeCsvCell = (cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`;
   return [headers, ...rows]
-    .map((row) => row.map((cell) => `"${cell}"`).join(","))
+    .map((row) => row.map(escapeCsvCell).join(","))
     .join("\n");
 }
