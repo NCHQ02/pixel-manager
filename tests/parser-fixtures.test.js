@@ -77,6 +77,60 @@ test("parses Meta advanced matching bracket fields", () => {
   assert.equal(parsed.eventData.cd.content_name, "Guide");
 });
 
+test("parses Meta POST JSON fixture with CAPI-style fields", () => {
+  const parsed = parseMetaRequest(
+    new URL("https://www.facebook.com/tr/"),
+    {
+      method: "POST",
+      requestBody: rawBody(
+        JSON.stringify({
+          id: "123456",
+          event_name: "Purchase",
+          event_id: "evt-capi-1",
+          custom_data: { value: 125, currency: "USD" },
+          user_data: {
+            em: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+        }),
+      ),
+    },
+  );
+
+  assert.equal(parsed.pixelId, "123456");
+  assert.equal(parsed.eventName, "Purchase");
+  assert.equal(parsed.eventData.event_id, "evt-capi-1");
+  assert.equal(parsed.eventData.cd.value, 125);
+  assert.equal(parsed.eventData.ud.em.length, 64);
+});
+
+test("parses Meta POST form fixture and diagnostic fallback", () => {
+  const parsed = parseMetaRequest(new URL("https://www.facebook.com/tr/"), {
+    method: "POST",
+    requestBody: {
+      formData: {
+        id: ["123456"],
+        ev: ["Microdata"],
+        cd: ['{"content_name":"Product"}'],
+      },
+    },
+  });
+
+  assert.equal(parsed.platform, "Meta");
+  assert.equal(parsed.eventName, "Microdata");
+  assert.equal(parsed.isDiagnostic, true);
+  assert.equal(parsed.eventData.cd.content_name, "Product");
+});
+
+test("marks ambiguous Meta hits with low parser confidence", () => {
+  const parsed = parseMetaRequest(
+    new URL("https://www.facebook.com/tr/?id=123456"),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.eventName, "Unknown");
+  assert.equal(parsed.confidence, "low");
+});
+
 test("parses TikTok CompletePayment JSON fixture", () => {
   const parsed = parseTikTokRequest(
     new URL("https://analytics.tiktok.com/api/v2/pixel/track/"),
@@ -95,8 +149,10 @@ test("parses TikTok CompletePayment JSON fixture", () => {
 
   assert.equal(parsed.platform, "TikTok");
   assert.equal(parsed.pixelId, "C123ABC");
-  assert.equal(parsed.eventName, "CompletePayment");
+  assert.equal(parsed.eventName, "Purchase");
   assert.equal(parsed.eventData.properties.currency, "USD");
+  assert.equal(parsed.sourceParser, "tiktok");
+  assert.equal(parsed.parserSchemaVersion, 2);
 });
 
 test("parses TikTok Purchase URL-encoded fixture with sdkid", () => {
@@ -141,6 +197,24 @@ test("splits batched TikTok JSON events", () => {
   assert.equal(parsed[0].eventName, "Pageview");
   assert.equal(parsed[1].eventName, "Purchase");
   assert.equal(parsed[1].pixelId, "CBATCH123");
+});
+
+test("normalizes TikTok PlaceAnOrder as Purchase through the catalog", () => {
+  const parsed = parseTikTokRequest(
+    new URL("https://analytics.tiktok.com/api/v2/pixel/track/"),
+    {
+      method: "POST",
+      requestBody: rawBody(
+        JSON.stringify({
+          event: "PlaceAnOrder",
+          pixel_code: "C123ABC",
+          properties: { value: 42, currency: "USD" },
+        }),
+      ),
+    },
+  );
+
+  assert.equal(parsed.eventName, "Purchase");
 });
 
 test("normalizes TikTok Pageview casing", () => {

@@ -15,6 +15,15 @@ import {
   FUNNEL_RANKS,
   SUPPORTED_EXPECTATION_PLATFORMS,
 } from "./audit-rules.js";
+import {
+  EVIDENCE_SOURCES,
+  EVIDENCE_SOURCE_META,
+  canonicalEventName as catalogCanonicalEventName,
+  canonicalPlatform as catalogCanonicalPlatform,
+  getEvidenceSourceForEvent,
+  getEvidenceSourceMeta,
+  normalizeEventNameKey,
+} from "../../shared/tracking-catalog.js";
 
 export {
   AUDIT_PRESETS,
@@ -33,12 +42,16 @@ export const ISSUE_CATEGORY_LABELS = Object.freeze({
   privacy: "Privacy",
   duplicate_firing: "Duplicate Firing",
   parser_confidence: "Parser Confidence",
+  source_of_truth: "Source of Truth",
 });
 
 export function createAuditIssue(input = {}) {
   const event = input.event || {};
   const message = String(input.message || "Review this tracking signal.");
   const category = input.category || issueCategoryForMessage(message);
+  const eventEvidenceSource = event.evidenceSource
+    ? getEvidenceSourceForEvent(event)
+    : getEvidenceSourceForEvent({ source: input.source || event.source || "network" });
   return {
     severity: input.severity || "warning",
     category,
@@ -49,6 +62,7 @@ export function createAuditIssue(input = {}) {
     evidence: input.evidence || evidenceForIssue(message, event),
     suggestion: input.suggestion || getIssueFixSuggestion({ message, event, category }),
     source: input.source || event.source || "audit",
+    evidenceSource: input.evidenceSource || eventEvidenceSource,
     timestamp: input.timestamp || event.timestamp || Date.now(),
     eventId: input.eventId === undefined ? event.id || null : input.eventId,
     heuristic: !!input.heuristic,
@@ -269,6 +283,7 @@ export function buildIssues(
       expectedPixels,
     }),
   );
+  issues.push(...buildSourceOfTruthIssues());
 
   return dedupeIssues(issues).sort((a, b) => b.timestamp - a.timestamp);
 }
@@ -381,6 +396,13 @@ function issueCategoryForMessage(message = "") {
     return "installation";
   }
   if (lowered.includes("unknown") || lowered.includes("parser")) return "parser_confidence";
+  if (
+    lowered.includes("source of truth") ||
+    lowered.includes("external account") ||
+    lowered.includes("not connected")
+  ) {
+    return "source_of_truth";
+  }
   return "event_quality";
 }
 
@@ -432,6 +454,17 @@ function buildObservedEventIssues(event) {
     }));
   }
 
+  (event.diagnostics?.validationIssues || []).forEach((validationIssue) => {
+    issues.push(createAuditIssue({
+      severity: event.confidence === "low" ? "warning" : "info",
+      category: "parser_confidence",
+      event,
+      message: validationIssue,
+      evidence: `Parser ${event.sourceParser || "unknown"} emitted confidence ${event.confidence || "medium"}.`,
+      heuristic: true,
+    }));
+  });
+
   if (isConversionLike(event)) {
     if (
       event.platform === "Meta" &&
@@ -472,6 +505,27 @@ function buildObservedEventIssues(event) {
   }
 
   return issues;
+}
+
+function buildSourceOfTruthIssues() {
+  return [
+    createAuditIssue({
+      severity: "info",
+      category: "source_of_truth",
+      platform: "External Account",
+      eventName: "Account Diagnostics",
+      pixelId: "",
+      message: "External account diagnostics are not connected in this V1 report.",
+      evidence:
+        "This report treats local network, DataLayer, and scanner evidence as the agency QA source of truth; account-side delivery still needs platform tools until API integrations are added.",
+      suggestion:
+        "Use Meta Events Manager, TikTok Events Manager, Google Tag Diagnostics, or platform account tools for final server/account-side confirmation.",
+      source: "audit",
+      evidenceSource: EVIDENCE_SOURCES.EXTERNAL_ACCOUNT,
+      eventId: null,
+      timestamp: Date.now(),
+    }),
+  ];
 }
 
 function latestScannerEvent(events = []) {
@@ -743,6 +797,39 @@ function buildScannerSummary(events = []) {
   };
 }
 
+function buildEvidenceSourceSummary(events = []) {
+  const counts = events.reduce((map, event) => {
+    const evidenceSource = getEvidenceSourceForEvent(event);
+    map[evidenceSource] = (map[evidenceSource] || 0) + 1;
+    return map;
+  }, {});
+
+  return Object.entries(EVIDENCE_SOURCE_META).map(([key, meta]) => {
+    const count = counts[key] || 0;
+    const status =
+      key === EVIDENCE_SOURCES.EXTERNAL_ACCOUNT
+        ? "not_connected"
+        : count > 0
+          ? meta.status
+          : "not_observed";
+    return {
+      key,
+      label: meta.label,
+      description: meta.description,
+      count,
+      status,
+      statusLabel:
+        status === "not_connected"
+          ? "Not connected"
+          : status === "not_observed"
+            ? "Not observed"
+            : count === 1
+              ? "1 record"
+              : `${count} records`,
+    };
+  });
+}
+
 function maxParserSchemaVersion(events = []) {
   return events.reduce(
     (max, event) => Math.max(max, Number(event.parserSchemaVersion || 1)),
@@ -768,6 +855,9 @@ export function getIssueFixSuggestion(issueOrInput, maybeEvent) {
   }
   if (category === "parser_confidence") {
     return "Open the raw payload and confirm the ID/event-name parameter; add a fixture if this endpoint is valid.";
+  }
+  if (category === "source_of_truth") {
+    return "Use the relevant platform account diagnostics for final delivery confirmation when local QA needs account-side proof.";
   }
   if (lowered.includes("duplicate firing")) {
     return "Check duplicate pixel installs, GTM triggers, or theme/app overlap.";
@@ -817,6 +907,7 @@ export function buildReportModel({
   const platformBreakdown = buildPlatformBreakdown(safeEvents);
   const issueSummary = buildIssueSummary(issues);
   const scannerSummary = buildScannerSummary(safeEvents);
+  const evidenceSources = buildEvidenceSourceSummary(safeEvents);
   const generatedAt = Date.now();
 
   return {
@@ -837,6 +928,7 @@ export function buildReportModel({
     summary,
     issueSummary,
     scannerSummary,
+    evidenceSources,
     parserSchemaVersion: maxParserSchemaVersion(safeEvents),
     checklist,
     issues,
@@ -868,6 +960,9 @@ export function buildProfessionalReportHtml(reportModel) {
     ].join(", ") || "None";
   const passCount = model.checklist.filter((item) => item.status === "valid").length;
   const failCount = model.checklist.length - passCount;
+  const actionableIssueCount = model.issues.filter(
+    (issue) => issue.severity !== "info",
+  ).length;
   const duplicateCount = model.issues.filter((issue) =>
     issue.message.includes("Duplicate firing"),
   ).length;
@@ -876,8 +971,8 @@ export function buildProfessionalReportHtml(reportModel) {
   const includePayloadAppendix =
     model.options?.includePayloadAppendix !== false;
   const actionLine =
-    model.issues.length > 0
-      ? `${model.issues.length} issue(s) need review before campaign spend starts.`
+    actionableIssueCount > 0
+      ? `${actionableIssueCount} issue(s) need review before campaign spend starts.`
       : "No blocking issues detected in this audit window.";
   const issueCategoryTiles =
     Object.entries(model.issueSummary || {})
@@ -910,6 +1005,19 @@ export function buildProfessionalReportHtml(reportModel) {
       issue.category,
     ),
   );
+  const evidenceSourceTiles = (model.evidenceSources || [])
+    .map((item) =>
+      summaryTile(
+        item.label,
+        item.statusLabel,
+        item.key === EVIDENCE_SOURCES.EXTERNAL_ACCOUNT
+          ? "accent-cream"
+          : item.count > 0
+            ? "accent-mint"
+            : "",
+      ),
+    )
+    .join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -1296,9 +1404,23 @@ export function buildProfessionalReportHtml(reportModel) {
       </section>
 
       <section class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Source of Truth</p>
+            <h2>Hybrid evidence coverage</h2>
+          </div>
+          <span class="pill pill-soft">local-first v1</span>
+        </div>
+        <div class="summary-grid">
+          ${evidenceSourceTiles}
+        </div>
+        <p class="lead" style="font-size: 18px;">Local browser evidence is the agency QA source of truth for this report. Account-side diagnostics are reserved for future integrations and are marked as not connected in V1.</p>
+      </section>
+
+      <section class="section">
         <div class="summary-grid">
           ${summaryTile("Total Events", model.summary.total, "accent-lilac")}
-          ${summaryTile("Issues", model.issues.length, model.issues.length ? "accent-pink" : "accent-mint")}
+          ${summaryTile("Actionable Issues", actionableIssueCount, actionableIssueCount ? "accent-pink" : "accent-mint")}
           ${summaryTile("Duplicates", duplicateCount, duplicateCount ? "accent-cream" : "")}
           ${summaryTile("Redactions", redactions, redactions ? "accent-pink" : "")}
         </div>
@@ -1510,19 +1632,11 @@ function eventMatchesExpected(event, platform, eventName) {
 }
 
 function canonicalPlatform(platform = "") {
-  const raw = String(platform).trim();
-  return EXPECTATION_PLATFORM_ALIASES.get(raw.toLowerCase()) || raw;
+  return catalogCanonicalPlatform(platform);
 }
 
 function canonicalEventName(platform, eventName = "") {
-  if (platform === "TikTok") {
-    const normalized = normalizeEventName(eventName);
-    if (normalized === "pageview") return "Pageview";
-    if (["completepayment", "placeanorder"].includes(normalized)) {
-      return "Purchase";
-    }
-  }
-  return eventName;
+  return catalogCanonicalEventName(platform, eventName);
 }
 
 function collectRuleIssues(event, rule, expectedPixels = {}) {
@@ -1595,13 +1709,7 @@ function eventRank(eventName = "") {
 }
 
 function normalizeEventName(eventName = "") {
-  return String(eventName)
-    .replace(/^Conversion\s*\(.+\)$/i, "Conversion")
-    .replace(/[^a-z0-9_ ]/gi, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase()
-    .replace(/\s/g, "");
+  return normalizeEventNameKey(eventName);
 }
 
 function timelineMatches(event, step) {
@@ -1677,10 +1785,17 @@ function renderReportChecklistRow(item) {
 }
 
 function renderReportIssueRow(issue) {
+  const evidenceMeta = getEvidenceSourceMeta(issue.evidenceSource);
+  const severityClass =
+    issue.severity === "error"
+      ? "pill-error"
+      : issue.severity === "info"
+        ? "pill-soft"
+        : "pill-warning";
   return `<tr>
-    <td><span class="pill ${issue.severity === "error" ? "pill-error" : "pill-warning"}">${escapeHtml(issue.severity)}</span></td>
+    <td><span class="pill ${severityClass}">${escapeHtml(issue.severity)}</span></td>
     <td>${escapeHtml(issueCategoryLabel(issue.category))}</td>
-    <td>${escapeHtml(issue.source || "audit")}${issue.heuristic ? `<span class="evidence">heuristic</span>` : ""}</td>
+    <td>${escapeHtml(issue.source || "audit")}<span class="evidence">${escapeHtml(evidenceMeta.label)}${issue.heuristic ? " / heuristic" : ""}</span></td>
     <td>${escapeHtml(issue.platform)}</td>
     <td>${escapeHtml(issue.eventName)}</td>
     <td>${escapeHtml(issue.message)}<span class="evidence">${escapeHtml(issue.evidence || "No evidence snippet available.")}</span></td>

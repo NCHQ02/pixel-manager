@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test ./tests/parser-fixtures.test.js ./tests/audit-workflow.test.js ./tests/repository.test.js ./tests/session-lifecycle.test.js",
-    "verify": "node ./tools/verify-release.js"
+    "test": "node --test ./tests/catalog-consistency.test.js ./tests/parser-fixtures.test.js ./tests/audit-workflow.test.js ./tests/repository.test.js ./tests/session-lifecycle.test.js",
+    "verify": "node ./tools/verify-release.js",
+    "package:internal": "node ./tools/package-internal-beta.js"
   }
 }

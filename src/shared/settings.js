@@ -1,3 +1,5 @@
+import { PLATFORM_FILTERS } from "./tracking-catalog.js";
+
 export const DEFAULT_SETTINGS = Object.freeze({
   maxEvents: 500,
   sessionWindow: 1800000,
@@ -23,7 +25,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 const ALLOWED_VALUES = Object.freeze({
   defaultView: ["overview", "live", "checklist", "issues", "report"],
-  defaultPlatformFilter: ["All", "Meta", "TikTok", "Google", "Diagnostics"],
+  defaultPlatformFilter: PLATFORM_FILTERS,
   defaultStatusFilter: [
     "All",
     "valid",

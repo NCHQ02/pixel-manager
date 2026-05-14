@@ -1,6 +1,4 @@
-import { parseMetaRequest } from "./parsers/meta.js";
-import { parseTikTokRequest } from "./parsers/tiktok.js";
-import { parseGoogleRequest } from "./parsers/google.js";
+import { parseTrackingRequest } from "./parser-harness.js";
 import {
   checkDeduplication,
   sanitizeCapturedData,
@@ -8,6 +6,11 @@ import {
 } from "./utils.js";
 import { DEFAULT_SETTINGS } from "../shared/settings.js";
 import { MESSAGE_TYPES } from "../shared/messages.js";
+import {
+  EVIDENCE_SOURCES,
+  PARSER_SCHEMA_VERSION,
+  classifyDataLayerItem,
+} from "../shared/tracking-catalog.js";
 
 function createEventId(index = "") {
   return Date.now().toString() + index + Math.random().toString().slice(2, 6);
@@ -24,8 +27,6 @@ async function safeTabSend(chromeApi, tabId, message) {
     await chromeApi.tabs.sendMessage(tabId, message);
   } catch (_e) {}
 }
-
-const PARSER_SCHEMA_VERSION = 2;
 
 function isNumericKeyArrayLike(item) {
   if (!item || typeof item !== "object" || Array.isArray(item)) return false;
@@ -125,33 +126,9 @@ export class CaptureEngine {
       const item = normalizeDataLayerItem(rawItem);
       if (!item) continue;
 
-      let eventName = "DataLayer Init";
-      let isDiag = false;
-
-      if (Array.isArray(item) && item.length > 0) {
-        const command = item[0];
-        if (typeof command === "string") {
-          eventName =
-            command === "event" && typeof item[1] === "string"
-              ? item[1]
-              : `DataLayer: ${command}`;
-          if (["consent", "set", "js", "config"].includes(command)) {
-            isDiag = true;
-          }
-        }
-      } else if (typeof item === "object" && item.event) {
-        eventName = item.event;
-        if (eventName === "gtm.js") {
-          eventName = "GTM Container Load";
-          isDiag = true;
-        }
-        isDiag =
-          isDiag ||
-          eventName === "gtm.load" ||
-          eventName === "gtm.dom" ||
-          eventName.startsWith("connection__") ||
-          eventName.startsWith("optimize.");
-      }
+      const classification = classifyDataLayerItem(item);
+      const { eventName } = classification;
+      const isDiag = classification.isDiagnostic;
 
       if (isDiag && !settings.captureDiagnostics) continue;
 
@@ -203,7 +180,13 @@ export class CaptureEngine {
           this.sessionManager.getContextForTab(tabId)?.auditRunId ||
           this.sessionManager.getActiveRunId(),
         source: "datalayer",
+        evidenceSource: EVIDENCE_SOURCES.LOCAL_DATALAYER,
         parserSchemaVersion: PARSER_SCHEMA_VERSION,
+        confidence: isDiag ? "medium" : "high",
+        sourceParser: "datalayer",
+        diagnostics: {
+          isDiagnostic: isDiag,
+        },
         dedupeKey,
         payloadHash,
       };
@@ -257,7 +240,14 @@ export class CaptureEngine {
         this.sessionManager.getContextForTab(tabId)?.auditRunId ||
         this.sessionManager.getActiveRunId(),
       source: "scanner",
+      evidenceSource: EVIDENCE_SOURCES.LOCAL_SCANNER,
       parserSchemaVersion: PARSER_SCHEMA_VERSION,
+      confidence: "medium",
+      sourceParser: "local-scanner",
+      diagnostics: {
+        isDiagnostic: true,
+        heuristic: true,
+      },
       dedupeKey,
       payloadHash,
     };
@@ -277,13 +267,8 @@ export class CaptureEngine {
       }
 
       const url = new URL(details.url);
-      const rawResults =
-        parseMetaRequest(url, details) ||
-        parseTikTokRequest(url, details) ||
-        parseGoogleRequest(url, details);
-      if (!rawResults) return;
-
-      const resultsArray = Array.isArray(rawResults) ? rawResults : [rawResults];
+      const resultsArray = parseTrackingRequest(url, details);
+      if (resultsArray.length === 0) return;
       const tabId = String(details.tabId);
       const eventRecords = [];
 
@@ -354,7 +339,11 @@ export class CaptureEngine {
             this.sessionManager.getContextForTab(tabId)?.auditRunId ||
             this.sessionManager.getActiveRunId(),
           source: "network",
+          evidenceSource: EVIDENCE_SOURCES.LOCAL_NETWORK,
           parserSchemaVersion: PARSER_SCHEMA_VERSION,
+          confidence: parsed.confidence,
+          sourceParser: parsed.sourceParser,
+          diagnostics: parsed.diagnostics || {},
           dedupeKey,
           payloadHash,
         };

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { HOST_PERMISSIONS } from "../src/shared/tracking-catalog.js";
 
 const root = process.cwd();
 const manifestPath = path.join(root, "manifest.json");
@@ -34,6 +35,11 @@ if (manifest.action?.default_icon) {
 Object.values(manifest.icons || {}).forEach((icon) => {
   assertPathExists(icon, "icons");
 });
+
+const manifestHosts = manifest.host_permissions || [];
+if (JSON.stringify(manifestHosts) !== JSON.stringify(HOST_PERMISSIONS)) {
+  fail("manifest host_permissions must match the shared tracking catalog");
+}
 
 if (manifest.web_accessible_resources?.length > 0) {
   fail("manifest should not expose web_accessible_resources for private beta build");

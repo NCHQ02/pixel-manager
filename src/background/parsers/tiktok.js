@@ -1,3 +1,5 @@
+import { createParsedSignal } from "../../shared/tracking-catalog.js";
+
 /**
  * @typedef {Object} TikTokEvent
  * @property {string} platform
@@ -71,7 +73,19 @@ export function parseTikTokRequest(url, details) {
     ]);
     const isDiagnostic = TIKTOK_DIAG_EVENTS.has(eventName);
 
-    events.push({ platform: "TikTok", pixelId, eventName, eventData, isDiagnostic });
+    events.push(
+      createParsedSignal({
+        platform: "TikTok",
+        pixelId,
+        eventName,
+        eventData,
+        isDiagnostic,
+        sourceParser: "tiktok",
+        diagnostics: {
+          endpoint: "tiktok-pixel",
+        },
+      }),
+    );
   };
 
   // Handle POST body (Form Data, URL-encoded data, JSON, or JSON batches)

@@ -1,3 +1,5 @@
+import { createParsedSignal } from "../../shared/tracking-catalog.js";
+
 /**
  * @typedef {Object} GoogleEvent
  * @property {string} platform
@@ -61,13 +63,19 @@ export function parseGoogleRequest(url, details) {
         eventName.startsWith("optimize.") ||
         INTERNAL_GA_EVENTS.includes(eventName);
 
-      events.push({
-        platform: "GA4",
-        pixelId,
-        eventName,
-        eventData: data,
-        isDiagnostic: isDiag,
-      });
+      events.push(
+        createParsedSignal({
+          platform: "GA4",
+          pixelId,
+          eventName,
+          eventData: data,
+          isDiagnostic: isDiag,
+          sourceParser: "google",
+          diagnostics: {
+            endpoint: "ga4-collect",
+          },
+        }),
+      );
     };
 
     // Parse batched events from POST body
@@ -124,13 +132,17 @@ export function parseGoogleRequest(url, details) {
       ? `Conversion (${conversionLabel})`
       : "Conversion";
 
-    return {
+    return createParsedSignal({
       platform: "Google Ads",
       pixelId,
       eventName,
       eventData,
       isDiagnostic: false,
-    };
+      sourceParser: "google",
+      diagnostics: {
+        endpoint: "google-ads-conversion",
+      },
+    });
   }
 
   // 3. Floodlight (DV360 / CM360)
@@ -149,13 +161,17 @@ export function parseGoogleRequest(url, details) {
     const eventName =
       eventData.type && eventData.cat ? `${eventData.type} / ${eventData.cat}` : "Floodlight Ping";
 
-    return {
+    return createParsedSignal({
       platform: "Floodlight",
       pixelId,
       eventName,
       eventData,
       isDiagnostic: false,
-    };
+      sourceParser: "google",
+      diagnostics: {
+        endpoint: "floodlight-activity",
+      },
+    });
   }
 
   return null;

@@ -1,4 +1,5 @@
 import "./contracts.js";
+import { getEvidenceSourceForEvent } from "./tracking-catalog.js";
 
 export const DB_NAME = "omnisignal-audit-db";
 export const DB_VERSION = 1;
@@ -22,16 +23,23 @@ function groupEventsByTab(events) {
 }
 
 function normalizeEvent(event) {
-  return {
+  const normalized = {
     issues: [],
     duplicateCount: 0,
     isDiagnostic: false,
     status: "valid",
     source: "network",
     parserSchemaVersion: 1,
+    confidence: "medium",
+    diagnostics: {},
+    sourceParser: "",
     ...event,
     tabId: String(event.tabId ?? "unknown"),
     timestamp: Number(event.timestamp || Date.now()),
+  };
+  return {
+    ...normalized,
+    evidenceSource: getEvidenceSourceForEvent(normalized),
   };
 }
 

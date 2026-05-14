@@ -1,3 +1,5 @@
+import { createParsedSignal } from "../../shared/tracking-catalog.js";
+
 /**
  * @typedef {Object} MetaEvent
  * @property {string} platform
@@ -75,9 +77,20 @@ export function parseMetaRequest(url, details) {
     }
   }
 
-  const isDiagnostic = eventName === "Microdata" || eventName === "SubscribedButtonClick";
+  const isDiagnostic =
+    eventName === "Microdata" || eventName === "SubscribedButtonClick";
 
-  return { platform: "Meta", pixelId, eventName, eventData, isDiagnostic };
+  return createParsedSignal({
+    platform: "Meta",
+    pixelId,
+    eventName,
+    eventData,
+    isDiagnostic,
+    sourceParser: "meta",
+    diagnostics: {
+      endpoint: "facebook.com/tr",
+    },
+  });
 }
 
 function looksLikeJson(raw = "") {

@@ -7,7 +7,12 @@
 - Preserve the current dashboard visual layer, including local packaged fonts
   and platform icons, unless a dedicated UI parity pass replaces them.
 - Keep parser functions pure: input is URL/request details, output is parsed
-  event data or `null`.
+  `ParsedSignal` data or `null`.
+- Treat `src/shared/tracking-catalog.js` as the source of truth for platforms,
+  event aliases, endpoint patterns, audit rules, UI metadata, evidence-source
+  labels, and parser schema version.
+- Keep parser output normalized through `src/background/parser-harness.js`
+  before converting it into stored `TrackedEvent` records.
 - Store captured events only through `event-repository.js`; do not reintroduce
   `trackedEvents` writes in `chrome.storage.local`.
 - Keep privacy redaction before persistence. Raw payloads should be sanitized
@@ -20,6 +25,7 @@
 
 - Run `npm.cmd test`.
 - Run `npm.cmd run verify`.
+- For an internal agency beta package, run `npm.cmd run package:internal`.
 - Load the unpacked extension and confirm refresh/page load starts a clean
   event canvas.
 - Export HTML, JSON, and CSV from the dashboard after closing the audited tab.

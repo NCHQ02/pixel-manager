@@ -41,8 +41,16 @@ OmniSignal is a Manifest V3 extension with three runtime areas:
 - Scanner snapshots are stored as diagnostic `TrackedEvent` records with
   `source: "scanner"` and are included in audit/report models even when normal
   diagnostic events are hidden from the live stream.
-- Parser output includes `parserSchemaVersion` so fixtures and reports can
-  identify which local parsing contract produced the evidence.
+- `src/shared/tracking-catalog.js` is the source of truth for platform metadata,
+  endpoint coverage, expectation aliases, audit rules, parser schema, and
+  Hybrid Evidence labels.
+- Parser output includes `parserSchemaVersion`, `sourceParser`, `confidence`,
+  `diagnostics`, and `evidenceSource` so fixtures and reports can identify
+  which local parsing contract produced the evidence.
+- V1 reports use Hybrid Evidence: local network, local DataLayer, and local
+  scanner evidence are the agency QA source of truth; external account
+  diagnostics are reserved for future API integrations and shown as not
+  connected.
 
 ## Scale Notes
 
@@ -55,7 +63,9 @@ OmniSignal is a Manifest V3 extension with three runtime areas:
 ## Ownership Boundaries
 
 - Parser changes belong in `src/background/parsers/` and should emit stable
-  `TrackedEvent`-compatible data.
+  `ParsedSignal` data validated through `src/background/parser-harness.js`.
+- Platform, event alias, audit rule, UI metadata, parser schema, and evidence
+  label changes belong in `src/shared/tracking-catalog.js`.
 - Capture/session changes belong in `src/background/`; do not write directly to
   `chrome.storage.local` for events.
 - Dashboard state selection belongs in `src/dashboard/js/state/`; rendering

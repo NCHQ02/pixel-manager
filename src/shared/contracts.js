@@ -47,15 +47,32 @@
  * @property {number} duplicateCount
  * @property {string} auditRunId
  * @property {"network"|"datalayer"|"scanner"} source
+ * @property {"local_network"|"local_datalayer"|"local_scanner"|"external_account"} [evidenceSource]
  * @property {number} [parserSchemaVersion]
+ * @property {"high"|"medium"|"low"} [confidence]
+ * @property {string} [sourceParser]
+ * @property {Record<string, any>} [diagnostics]
  * @property {string} [dedupeKey]
  * @property {string} [payloadHash]
  */
 
 /**
+ * @typedef {Object} ParsedSignal
+ * @property {string} platform
+ * @property {string} pixelId
+ * @property {string} eventName
+ * @property {Record<string, any>} eventData
+ * @property {boolean} isDiagnostic
+ * @property {"high"|"medium"|"low"} confidence
+ * @property {Record<string, any>} diagnostics
+ * @property {string} sourceParser
+ * @property {number} parserSchemaVersion
+ */
+
+/**
  * @typedef {Object} AuditIssue
  * @property {"error"|"warning"|"info"} severity
- * @property {"installation"|"event_quality"|"required_params"|"deduplication"|"consent"|"google_tag_health"|"privacy"|"duplicate_firing"|"parser_confidence"} category
+ * @property {"installation"|"event_quality"|"required_params"|"deduplication"|"consent"|"google_tag_health"|"privacy"|"duplicate_firing"|"parser_confidence"|"source_of_truth"} category
  * @property {string} platform
  * @property {string} eventName
  * @property {string} pixelId
@@ -63,6 +80,7 @@
  * @property {string} evidence
  * @property {string} suggestion
  * @property {"network"|"datalayer"|"scanner"|"audit"} source
+ * @property {"local_network"|"local_datalayer"|"local_scanner"|"external_account"} [evidenceSource]
  * @property {?string} eventId
  * @property {number} timestamp
  * @property {boolean} [heuristic]

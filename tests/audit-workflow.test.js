@@ -450,7 +450,13 @@ test("builds report model for a 5,000 event local session", () => {
   });
 
   assert.equal(reportModel.summary.total, 5000);
-  assert.equal(reportModel.issues.length, 0);
+  assert.equal(
+    reportModel.issues.filter((issue) => issue.severity !== "info").length,
+    0,
+  );
+  assert.ok(
+    reportModel.issues.some((issue) => issue.category === "source_of_truth"),
+  );
   assert.equal(reportModel.checklist[0].status, "valid");
 });
 

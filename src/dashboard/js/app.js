@@ -12,6 +12,7 @@ import {
   todayIsoDate,
 } from "./controllers/downloads.js";
 import { DEFAULT_SETTINGS, normalizeSettings } from "../../shared/settings.js";
+import { getEvidenceSourceMeta } from "../../shared/tracking-catalog.js";
 import {
   AUDIT_PRESETS,
   AUDIT_RULES,
@@ -662,6 +663,7 @@ function renderEventDrawer(event) {
   );
   const status = classifyEventStatus(event, warnings);
   const richDetails = extractRichDetails(event.eventData || {}, event.platform);
+  const evidenceMeta = getEvidenceSourceMeta(event.evidenceSource);
   const payload = JSON.stringify(event.eventData || {}, null, 2);
   const showPayload = store.settings?.autoOpenPayload === true;
 
@@ -694,7 +696,10 @@ function renderEventDrawer(event) {
       <div class="drawer-grid">
         ${detailItem("Pixel ID", event.pixelId)}
         ${detailItem("Page URL", event.url)}
+        ${detailItem("Evidence Source", evidenceMeta.label)}
         ${detailItem("Parser Schema", event.parserSchemaVersion || 1)}
+        ${detailItem("Parser", event.sourceParser || event.source || "network")}
+        ${detailItem("Confidence", event.confidence || "medium")}
         ${Object.entries(richDetails)
           .map(([key, value]) => detailItem(key, value))
           .join("")}

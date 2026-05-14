@@ -1,89 +1,6 @@
-/**
- * Platform Metadata for consistent UI rendering
- */
-export const PLATFORMS = {
-  Meta: {
-    label: "Meta Pixel",
-    icon: "assets/icons/meta.png",
-    color: "#0668E1",
-    bgClass: "bg-meta",
-    description:
-      "Deep-packet inspection of standard events, Advanced Matching (PII), and custom conversions routed to Meta's tracking infrastructure.",
-    heroTitle: "Meta Pixel Intelligence",
-  },
-  TikTok: {
-    label: "TikTok Pixel",
-    icon: "assets/icons/tiktok.png",
-    color: "#000000",
-    bgClass: "bg-tiktok",
-    description:
-      "Real-time monitoring of browser-side interactions, session signals, and performance pings dispatched to the TikTok Ads engine.",
-    heroTitle: "TikTok Event Stream",
-  },
-  GA4: {
-    label: "GA4",
-    icon: "assets/icons/ga4.svg",
-    color: "#E37400",
-    bgClass: "bg-google",
-    description:
-      "High-fidelity interception of GA4 Measurement Protocol pings, Google Ads conversions, and Floodlight activity.",
-    heroTitle: "Google Suite Analysis",
-  },
-  "Google Ads": {
-    label: "Google Ads",
-    icon: "assets/icons/google-ads.png",
-    color: "#4285F4",
-    bgClass: "bg-google",
-    description:
-      "Monitoring conversion signals, GCLID attribution, and dynamic remarketing events for Google Ads.",
-    heroTitle: "Google Ads Tracking",
-  },
-  Floodlight: {
-    label: "Floodlight",
-    icon: "assets/icons/floodlight.svg",
-    color: "#00A1E0",
-    bgClass: "bg-google",
-    description:
-      "Interception of Campaign Manager 360 Floodlight tags and Search Ads 360 conversion signals.",
-    heroTitle: "Floodlight Monitor",
-  },
-  DataLayer: {
-    label: "DataLayer",
-    icon: "assets/icons/google-tag-manager.png",
-    color: "#2485FF",
-    bgClass: "bg-google",
-    description:
-      "Real-time monitoring of the GTM DataLayer object, tracking state changes and variable pushes.",
-    heroTitle: "DataLayer Inspection",
-  },
-  Google: {
-    label: "Google Suite",
-    icon: "assets/icons/google.png",
-    color: "#4285F4",
-    bgClass: "bg-google",
-    description:
-      "Unified monitoring of GA4 Measurement Protocol, Google Ads Conversions, and DV360 Floodlight activity across all properties.",
-    heroTitle: "Google Ecosystem",
-  },
-  Diagnostics: {
-    label: "Diagnostics",
-    icon: "assets/icons/diagnostics.png",
-    color: "#6B7280",
-    bgClass: "bg-cream",
-    description:
-      "Subsurface system signals, automated microdata pings, and low-level diagnostic traces used for platform health.",
-    heroTitle: "System Diagnostics",
-  },
-  All: {
-    label: "Global Stream",
-    icon: null,
-    color: "#6366F1",
-    bgClass: "bg-lilac",
-    description:
-      "A unified, unstructured view of all tracking signals intercepted from social and search platforms across this session.",
-    heroTitle: "Universal Event Canvas",
-  },
-};
+import { PLATFORM_UI_META } from "../../shared/tracking-catalog.js";
+
+export const PLATFORMS = PLATFORM_UI_META;
 
 /**
  * Gets metadata for a platform
@@ -539,6 +456,7 @@ export function eventsToCsv(events) {
     "Status",
     "Duplicate Count",
     "Source",
+    "Evidence Source",
     "URL",
     "Raw Data",
   ];
@@ -551,6 +469,7 @@ export function eventsToCsv(events) {
     e.status || classifyEventStatus(e).key,
     e.duplicateCount || 0,
     e.source || "network",
+    e.evidenceSource || "",
     e.url,
     JSON.stringify(e.eventData),
   ]);
