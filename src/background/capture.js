@@ -25,6 +25,8 @@ async function safeTabSend(chromeApi, tabId, message) {
   } catch (_e) {}
 }
 
+const PARSER_SCHEMA_VERSION = 2;
+
 export class CaptureEngine {
   /**
    * @param {Object} deps
@@ -64,6 +66,14 @@ export class CaptureEngine {
     await this.notifyOverlay(eventRecord.tabId);
   }
 
+  async persistEvents(eventRecords, maxEvents) {
+    const records = eventRecords.filter(Boolean);
+    if (records.length === 0) return;
+    await this.repository.addEvents(records, { maxEvents });
+    await this.notifyEventsChanged(records[0].tabId);
+    await this.notifyOverlay(records[0].tabId);
+  }
+
   async persistDuplicate(match, eventData) {
     const updated = await this.repository.incrementDuplicateEvent(match, eventData);
     if (!updated) return;
@@ -89,6 +99,7 @@ export class CaptureEngine {
 
     if (!Array.isArray(payloadArray)) return;
 
+    const eventRecords = [];
     for (const [index, item] of payloadArray.entries()) {
       if (!item) continue;
 
@@ -167,13 +178,65 @@ export class CaptureEngine {
           this.sessionManager.getContextForTab(tabId)?.auditRunId ||
           this.sessionManager.getActiveRunId(),
         source: "datalayer",
+        parserSchemaVersion: PARSER_SCHEMA_VERSION,
       };
 
-      await this.persistEvent(
-        eventRecord,
-        settings.maxEvents || DEFAULT_SETTINGS.maxEvents,
-      );
+      eventRecords.push(eventRecord);
     }
+    await this.persistEvents(
+      eventRecords,
+      settings.maxEvents || DEFAULT_SETTINGS.maxEvents,
+    );
+  }
+
+  async handleTagScanMessage(message, sender) {
+    const settings = this.getSettings();
+    if (!settings.captureTagScanner) return;
+    if (
+      sender.tab?.id >= 0 &&
+      !this.sessionManager.isAuditedTab(sender.tab.id)
+    ) {
+      return;
+    }
+
+    const tabId = sender.tab ? String(sender.tab.id) : "background_worker";
+    const eventData = sanitizeCapturedData(message.data || {});
+    const { isDuplicate } = checkDeduplication(
+      tabId,
+      "Diagnostics",
+      "Local Scanner",
+      "Tag Scanner Snapshot",
+      eventData,
+      "DOM",
+      settings.duplicateWindow,
+    );
+    if (isDuplicate) return;
+
+    const eventRecord = {
+      id: createEventId("scanner"),
+      tabId,
+      platform: "Diagnostics",
+      pixelId: "Local Scanner",
+      eventName: "Tag Scanner Snapshot",
+      eventData,
+      url: sender.tab ? sanitizeCapturedUrl(sender.tab.url) : "",
+      method: "DOM",
+      timestamp: message.data?.timestamp || Date.now(),
+      status: "diagnostic",
+      isDiagnostic: true,
+      issues: [],
+      duplicateCount: 0,
+      auditRunId:
+        this.sessionManager.getContextForTab(tabId)?.auditRunId ||
+        this.sessionManager.getActiveRunId(),
+      source: "scanner",
+      parserSchemaVersion: PARSER_SCHEMA_VERSION,
+    };
+
+    await this.persistEvent(
+      eventRecord,
+      settings.maxEvents || DEFAULT_SETTINGS.maxEvents,
+    );
   }
 
   async handleNetworkRequest(details) {
@@ -193,6 +256,7 @@ export class CaptureEngine {
 
       const resultsArray = Array.isArray(rawResults) ? rawResults : [rawResults];
       const tabId = String(details.tabId);
+      const eventRecords = [];
 
       for (const parsed of resultsArray) {
         if (parsed.isDiagnostic && !settings.captureDiagnostics) continue;
@@ -258,13 +322,16 @@ export class CaptureEngine {
             this.sessionManager.getContextForTab(tabId)?.auditRunId ||
             this.sessionManager.getActiveRunId(),
           source: "network",
+          parserSchemaVersion: PARSER_SCHEMA_VERSION,
         };
 
-        await this.persistEvent(
-          eventRecord,
-          settings.maxEvents || DEFAULT_SETTINGS.maxEvents,
-        );
+        eventRecords.push(eventRecord);
       }
+
+      await this.persistEvents(
+        eventRecords,
+        settings.maxEvents || DEFAULT_SETTINGS.maxEvents,
+      );
     } catch (err) {
       console.error("[PixelTracker] Network Parse Error:", err);
     }

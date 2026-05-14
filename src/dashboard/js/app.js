@@ -13,8 +13,10 @@ import {
 } from "./controllers/downloads.js";
 import { DEFAULT_SETTINGS, normalizeSettings } from "../../shared/settings.js";
 import {
+  AUDIT_PRESETS,
   AUDIT_RULES,
   EXPECTATION_IMPORT_TEMPLATE,
+  ISSUE_CATEGORY_LABELS,
   buildIssues,
   buildProfessionalReportHtml,
   buildReportModel,
@@ -52,9 +54,11 @@ const state = {
 let hydrated = false;
 let draftTimer = null;
 let activeReportPreviewUrl = null;
+let renderQueued = false;
 
 const renderer = new PixelRenderer("events-list", "empty-state", {
   onSelectEvent: openEventDrawer,
+  maxRenderedEvents: 300,
 });
 
 const els = {
@@ -119,6 +123,7 @@ const els = {
   settingCaptureDiagnostics: document.getElementById(
     "setting-capture-diagnostics",
   ),
+  settingCaptureScanner: document.getElementById("setting-capture-scanner"),
   settingDefaultView: document.getElementById("setting-default-view"),
   settingDefaultPlatform: document.getElementById("setting-default-platform"),
   settingDefaultStatus: document.getElementById("setting-default-status"),
@@ -195,14 +200,27 @@ function getEvents(options = {}) {
   return selectEvents(store, state, options);
 }
 
+function shouldKeepDiagnosticForAnalysis(event, includeDiagnostics = false) {
+  return includeDiagnostics || !event.isDiagnostic || event.source === "scanner";
+}
+
+function getAnalysisEvents({ filtered = false, includeDiagnostics = false } = {}) {
+  const events = filtered
+    ? getEvents({ includeDiagnostics: true })
+    : getEvents({
+        applyPlatform: false,
+        applyStatus: false,
+        applySearch: false,
+        includeDiagnostics: true,
+      });
+  return events.filter((event) =>
+    shouldKeepDiagnosticForAnalysis(event, includeDiagnostics),
+  );
+}
+
 function renderAll() {
   if (!hydrated) return;
-  const auditEvents = getEvents({
-    applyPlatform: false,
-    applyStatus: false,
-    applySearch: false,
-    includeDiagnostics: false,
-  });
+  const auditEvents = getAnalysisEvents();
   const visibleEvents = getEvents();
   const auditRun = getActiveAuditRun();
   const reportModel = buildReportModel({
@@ -223,6 +241,15 @@ function renderAll() {
   renderReportPreview(reportModel);
   renderLiveStream(visibleEvents);
   renderSelectedDrawer();
+}
+
+function scheduleRenderAll() {
+  if (renderQueued) return;
+  renderQueued = true;
+  window.requestAnimationFrame(() => {
+    renderQueued = false;
+    renderAll();
+  });
 }
 
 function renderSession(reportModel) {
@@ -380,8 +407,31 @@ function renderExpectations() {
   const customEvents = state.expectedEvents.filter(
     (event) => !baseKeys.has(expectedKey(event)),
   );
+  const workflowPresets = `
+    <section class="preset-platform preset-workflows">
+      <p class="eyebrow">Specialist Presets</p>
+      <div class="workflow-preset-list">
+        ${AUDIT_PRESETS.map((preset) => {
+          const selectedCount = preset.expectedEvents.filter((event) =>
+            expectedKeys.has(expectedKey(event)),
+          ).length;
+          return `
+            <button
+              class="workflow-preset-btn"
+              type="button"
+              data-preset-id="${escapeHtml(preset.id)}"
+            >
+              <strong>${escapeHtml(preset.label)}</strong>
+              <span class="caption">${escapeHtml(preset.description)}</span>
+              <span class="mini-badge">${selectedCount}/${preset.expectedEvents.length}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
 
-  els.expectationPresets.innerHTML = platforms
+  els.expectationPresets.innerHTML = workflowPresets + platforms
     .map((platform) => {
       const rules = AUDIT_RULES.filter((rule) => rule.platform === platform).map(
         (rule) => ({ platform: rule.platform, eventName: rule.eventName }),
@@ -439,6 +489,11 @@ function renderChecklist(checklist) {
 
 function renderIssues(reportModel) {
   const issues = reportModel.issues;
+  const categoryText =
+    Object.entries(reportModel.issueSummary || {})
+      .filter(([, item]) => item.total > 0)
+      .map(([category, item]) => `${formatIssueCategory(category)} ${item.total}`)
+      .join(" / ") || "No issue categories";
   els.issuesSummary.className = `qa-section color-block ${
     issues.length > 0 ? "bg-pink" : "bg-mint"
   }`;
@@ -446,6 +501,7 @@ function renderIssues(reportModel) {
     <p class="eyebrow">Issues</p>
     <h2 class="headline">${issues.length > 0 ? "Fix these before campaign spend starts." : "No blocking issues found so far."}</h2>
     <p class="body-lg">${reportModel.summary.total} event(s), ${reportModel.health.score}% Tracking Health, ${reportModel.summary.redactions} privacy redaction(s).</p>
+    <p class="body-sm">${escapeHtml(categoryText)}</p>
   `;
 
   if (issues.length === 0) {
@@ -464,11 +520,16 @@ function renderIssues(reportModel) {
     .map(
       (issue) => `
         <button class="issue-row" type="button" data-event-id="${escapeHtml(issue.eventId || "")}">
-          <span class="status-pill status-${issue.severity === "error" ? "error" : "warning"}">${escapeHtml(issue.severity)}</span>
+          <div class="issue-meta">
+            <span class="status-pill status-${issue.severity === "error" ? "error" : "warning"}">${escapeHtml(issue.severity)}</span>
+            <span class="caption">${escapeHtml(formatIssueCategory(issue.category))}</span>
+            <span class="caption">${escapeHtml(issue.source || "audit")}${issue.heuristic ? " / heuristic" : ""}</span>
+          </div>
           <div class="platform-label">${platformIcon(issue.platform)}<span>${escapeHtml(issue.platform)}</span></div>
           <div>
             <strong>${escapeHtml(issue.eventName)}</strong>
             <p class="body-sm">${escapeHtml(issue.message)}</p>
+            <p class="caption evidence-text">${escapeHtml(issue.evidence || "No evidence snippet available.")}</p>
           </div>
           <div class="issue-fix">
             <span class="caption">Suggested Fix</span>
@@ -485,8 +546,11 @@ function renderReportPreview(reportModel) {
   const platformText =
     reportModel.platformBreakdown.map((item) => item.platform).join(", ") || "None";
   const duplicateCount = reportModel.issues.filter((issue) =>
-    issue.message.includes("Duplicate firing"),
+    issue.category === "duplicate_firing",
   ).length;
+  const scannerText = reportModel.scannerSummary?.observed
+    ? "Local scanner evidence captured."
+    : "No local scanner snapshot captured.";
   const timelinePreview = reportModel.timeline
     .slice(0, 4)
     .map(
@@ -503,7 +567,7 @@ function renderReportPreview(reportModel) {
       .map(
         (issue) => `
           <div>
-            <span class="caption">${escapeHtml(issue.platform)} / ${escapeHtml(issue.eventName)}</span>
+            <span class="caption">${escapeHtml(formatIssueCategory(issue.category))} / ${escapeHtml(issue.platform)} / ${escapeHtml(issue.eventName)}</span>
             <strong class="body-sm">${escapeHtml(issue.message)}</strong>
           </div>
         `,
@@ -522,7 +586,7 @@ function renderReportPreview(reportModel) {
         </div>
         <p class="eyebrow report-preview-target">Audited Target</p>
         <h3>${escapeHtml(reportModel.auditTarget?.label || "Not available")}</h3>
-        <p class="body-lg">${escapeHtml(platformText)} detected. ${passCount} of ${reportModel.checklist.length} expected event(s) passed.</p>
+        <p class="body-lg">${escapeHtml(platformText)} detected. ${passCount} of ${reportModel.checklist.length} expected event(s) passed. ${escapeHtml(scannerText)}</p>
       </div>
       <div class="report-preview-score">
         <p class="eyebrow">Tracking Health</p>
@@ -588,8 +652,9 @@ function renderSelectedDrawer() {
 
 function renderEventDrawer(event) {
   const warnings = auditEvent(event);
-  const issues = buildIssues([event], [], state.expectedPixels).filter(
-    (issue) => !issue.eventId || issue.eventId === event.id,
+  const drawerExpectedEvents = event.source === "scanner" ? state.expectedEvents : [];
+  const issues = buildIssues([event], drawerExpectedEvents, state.expectedPixels).filter(
+    (issue) => issue.eventId === event.id,
   );
   const status = classifyEventStatus(event, warnings);
   const richDetails = extractRichDetails(event.eventData || {}, event.platform);
@@ -610,7 +675,9 @@ function renderEventDrawer(event) {
           ? issues
               .map(
                 (issue) => `
+                  <p class="caption">${escapeHtml(formatIssueCategory(issue.category))}${issue.heuristic ? " / heuristic" : ""}</p>
                   <p class="body-sm"><strong>${escapeHtml(issue.message)}</strong></p>
+                  <p class="caption evidence-text">${escapeHtml(issue.evidence || "No evidence snippet available.")}</p>
                   <p class="body-sm">${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</p>
                 `,
               )
@@ -623,11 +690,13 @@ function renderEventDrawer(event) {
       <div class="drawer-grid">
         ${detailItem("Pixel ID", event.pixelId)}
         ${detailItem("Page URL", event.url)}
+        ${detailItem("Parser Schema", event.parserSchemaVersion || 1)}
         ${Object.entries(richDetails)
           .map(([key, value]) => detailItem(key, value))
           .join("")}
       </div>
     </div>
+    ${event.source === "scanner" ? renderScannerDrawerDetails(event.eventData || {}) : ""}
     <div class="drawer-block">
       <div class="section-heading-row">
         <p class="eyebrow">Raw Payload</p>
@@ -642,6 +711,30 @@ function renderEventDrawer(event) {
     </div>
   `;
   attachDrawerActions();
+}
+
+function renderScannerDrawerDetails(data) {
+  const detectedPlatforms = Object.entries(data.platforms || {})
+    .filter(([, detected]) => detected)
+    .map(([platform]) => platform)
+    .join(", ") || "None";
+  const google = data.google || {};
+  const cookies = data.cookies || {};
+  return `
+    <div class="drawer-block">
+      <p class="eyebrow">Scanner Evidence</p>
+      <div class="drawer-grid">
+        ${detailItem("Detected Platforms", detectedPlatforms)}
+        ${detailItem("Relevant Scripts", (data.scripts || []).length)}
+        ${detailItem("GTM Containers", (google.gtmContainers || []).join(", ") || "None")}
+        ${detailItem("Google Tags", (google.googleTagIds || []).join(", ") || "None")}
+        ${detailItem("Consent Command", google.consentSeen ? "Observed" : "Not observed")}
+        ${detailItem("Event Before Config", google.eventBeforeConfig ? "Yes" : "No")}
+        ${detailItem("GCL Linker Cookies", cookies.gclAw || cookies.gclAu ? "Observed" : "Not visible")}
+        ${detailItem("DataLayer Length", data.globals?.dataLayerLength || 0)}
+      </div>
+    </div>
+  `;
 }
 
 function detailItem(label, value) {
@@ -775,14 +868,7 @@ function buildCurrentReportModel({ filtered = false } = {}) {
   const includeDiagnostics =
     store.settings?.reportIncludeDiagnostics !== false ||
     (filtered && state.platformFilter === "Diagnostics");
-  const events = filtered
-    ? getEvents({ includeDiagnostics })
-    : getEvents({
-        applyPlatform: false,
-        applySearch: false,
-        applyStatus: false,
-        includeDiagnostics,
-      });
+  const events = getAnalysisEvents({ filtered, includeDiagnostics });
   return buildReportModel({
     events,
     auditRun,
@@ -915,6 +1001,25 @@ function importExpectationsFromJson() {
   }
 }
 
+function applyAuditPreset(presetId) {
+  const preset = AUDIT_PRESETS.find((item) => item.id === presetId);
+  if (!preset) return;
+  const before = new Set(state.expectedEvents.map(expectedKey));
+  let added = 0;
+  preset.expectedEvents.forEach((event) => {
+    if (!before.has(expectedKey(event))) added++;
+    addExpectedEvent(event.platform, event.eventName);
+  });
+  scheduleDraftSave();
+  renderAll();
+  els.bulkImportStatus.textContent =
+    `${preset.label} preset applied. ${added} new expected event(s) added.`;
+}
+
+function formatIssueCategory(category) {
+  return ISSUE_CATEGORY_LABELS[category] || category || "Event Quality";
+}
+
 function expectedKey(event) {
   const [normalized] = normalizeExpectedEvents([event]);
   return `${normalized.platform}::${normalized.eventName}`;
@@ -1012,6 +1117,12 @@ els.expectationPresets.addEventListener("change", (event) => {
   renderAll();
 });
 
+els.expectationPresets.addEventListener("click", (event) => {
+  const button = event.target.closest(".workflow-preset-btn");
+  if (!button) return;
+  applyAuditPreset(button.dataset.presetId);
+});
+
 els.expectedPixelInputs.forEach((input) => {
   input.addEventListener("input", () => {
     syncExpectedPixelsFromInputs();
@@ -1095,6 +1206,7 @@ function hydrateSettingsForm() {
   els.settingCaptureNetwork.checked = settings.captureNetwork;
   els.settingCaptureDataLayer.checked = settings.captureDataLayer;
   els.settingCaptureDiagnostics.checked = settings.captureDiagnostics;
+  els.settingCaptureScanner.checked = settings.captureTagScanner;
   els.settingDefaultView.value = settings.defaultView;
   els.settingDefaultPlatform.value = settings.defaultPlatformFilter;
   els.settingDefaultStatus.value = settings.defaultStatusFilter;
@@ -1116,6 +1228,7 @@ function readSettingsForm() {
     captureNetwork: els.settingCaptureNetwork.checked,
     captureDataLayer: els.settingCaptureDataLayer.checked,
     captureDiagnostics: els.settingCaptureDiagnostics.checked,
+    captureTagScanner: els.settingCaptureScanner.checked,
     restoreWorkspace: els.settingRestoreWorkspace.checked,
     autoSaveWorkspace: els.settingAutosaveDrafts.checked,
     defaultView: els.settingDefaultView.value,
@@ -1235,5 +1348,5 @@ store.subscribe((eventsMap) => {
   if (!hydrated) hydrateWorkspaceState();
   applyVisualSettings();
   updateTabSelector(eventsMap);
-  renderAll();
+  scheduleRenderAll();
 });

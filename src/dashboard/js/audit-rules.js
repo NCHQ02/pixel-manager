@@ -177,6 +177,93 @@ export const DEFAULT_EXPECTED_EVENTS = AUDIT_RULES.map((rule) => ({
   eventName: rule.eventName,
 }));
 
+export const AUDIT_PRESETS = Object.freeze([
+  {
+    id: "meta-capi-dedupe",
+    label: "Meta Browser + CAPI Dedupe",
+    description: "PageView, funnel events, event_id/eid, value/currency, and expected Meta pixel ID.",
+    expectedEvents: [
+      { platform: "Meta", eventName: "PageView" },
+      { platform: "Meta", eventName: "ViewContent" },
+      { platform: "Meta", eventName: "AddToCart" },
+      { platform: "Meta", eventName: "Purchase" },
+    ],
+  },
+  {
+    id: "tiktok-events-api-dedupe",
+    label: "TikTok Pixel + Events API",
+    description: "TikTok Pageview through Purchase with event_id and ecommerce parameters.",
+    expectedEvents: [
+      { platform: "TikTok", eventName: "Pageview" },
+      { platform: "TikTok", eventName: "ViewContent" },
+      { platform: "TikTok", eventName: "AddToCart" },
+      { platform: "TikTok", eventName: "Purchase" },
+    ],
+  },
+  {
+    id: "ga4-ecommerce",
+    label: "GA4 Ecommerce",
+    description: "GA4 page view, cart, checkout, and purchase with transaction and revenue fields.",
+    expectedEvents: [
+      { platform: "GA4", eventName: "page_view" },
+      { platform: "GA4", eventName: "add_to_cart" },
+      { platform: "GA4", eventName: "begin_checkout" },
+      { platform: "GA4", eventName: "purchase" },
+    ],
+  },
+  {
+    id: "google-ads-conversion",
+    label: "Google Ads Conversion",
+    description: "Google Ads conversion hit, label, value/currency, and local Google tag health checks.",
+    expectedEvents: [{ platform: "Google Ads", eventName: "Conversion" }],
+  },
+  {
+    id: "floodlight",
+    label: "Floodlight",
+    description: "Floodlight src/type/cat/ord validation for CM360 or DV360 tags.",
+    expectedEvents: [{ platform: "Floodlight", eventName: "Floodlight" }],
+  },
+  {
+    id: "shopify-launch",
+    label: "Shopify Launch QA",
+    description: "Common Shopify paid-media funnel across Meta, TikTok, GA4, and Google Ads.",
+    expectedEvents: [
+      { platform: "Meta", eventName: "PageView" },
+      { platform: "Meta", eventName: "AddToCart" },
+      { platform: "Meta", eventName: "Purchase" },
+      { platform: "TikTok", eventName: "Pageview" },
+      { platform: "TikTok", eventName: "Purchase" },
+      { platform: "GA4", eventName: "purchase" },
+      { platform: "Google Ads", eventName: "Conversion" },
+    ],
+  },
+  {
+    id: "woocommerce-launch",
+    label: "WooCommerce Launch QA",
+    description: "WordPress/WooCommerce purchase funnel and common paid-media conversion tags.",
+    expectedEvents: [
+      { platform: "Meta", eventName: "ViewContent" },
+      { platform: "Meta", eventName: "AddToCart" },
+      { platform: "Meta", eventName: "Purchase" },
+      { platform: "GA4", eventName: "add_to_cart" },
+      { platform: "GA4", eventName: "purchase" },
+      { platform: "Google Ads", eventName: "Conversion" },
+    ],
+  },
+  {
+    id: "generic-gtm-launch",
+    label: "Generic GTM Launch",
+    description: "Broad GTM launch checklist for social pixels, GA4 ecommerce, and Ads conversion tags.",
+    expectedEvents: [
+      { platform: "Meta", eventName: "PageView" },
+      { platform: "TikTok", eventName: "Pageview" },
+      { platform: "GA4", eventName: "page_view" },
+      { platform: "GA4", eventName: "purchase" },
+      { platform: "Google Ads", eventName: "Conversion" },
+    ],
+  },
+]);
+
 export const EXPECTATION_IMPORT_TEMPLATE = Object.freeze({
   expectedPixels: {
     Meta: "",

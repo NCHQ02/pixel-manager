@@ -70,5 +70,9 @@ export function registerRuntimeMessages({
     ) {
       ready.then(() => captureEngine.handleDataLayerMessage(message, sender));
     }
+
+    if (message.type === MESSAGE_TYPES.TAG_SCAN_RESULT) {
+      ready.then(() => captureEngine.handleTagScanMessage(message, sender));
+    }
   });
 }

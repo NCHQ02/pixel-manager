@@ -12,6 +12,7 @@
  * @property {number} duplicateWindow
  * @property {boolean} captureNetwork
  * @property {boolean} captureDataLayer
+ * @property {boolean} captureTagScanner
  * @property {boolean} captureDiagnostics
  * @property {boolean} restoreWorkspace
  * @property {boolean} autoSaveWorkspace
@@ -45,7 +46,24 @@
  * @property {string[]} issues
  * @property {number} duplicateCount
  * @property {string} auditRunId
- * @property {"network"|"datalayer"} source
+ * @property {"network"|"datalayer"|"scanner"} source
+ * @property {number} [parserSchemaVersion]
+ */
+
+/**
+ * @typedef {Object} AuditIssue
+ * @property {"error"|"warning"|"info"} severity
+ * @property {"installation"|"event_quality"|"required_params"|"deduplication"|"consent"|"google_tag_health"|"privacy"|"duplicate_firing"|"parser_confidence"} category
+ * @property {string} platform
+ * @property {string} eventName
+ * @property {string} pixelId
+ * @property {string} message
+ * @property {string} evidence
+ * @property {string} suggestion
+ * @property {"network"|"datalayer"|"scanner"|"audit"} source
+ * @property {?string} eventId
+ * @property {number} timestamp
+ * @property {boolean} [heuristic]
  */
 
 /**
@@ -89,6 +107,7 @@
  * @typedef {Object} EventRepository
  * @property {() => Promise<void>} init
  * @property {(event: TrackedEvent, options?: {maxEvents?: number}) => Promise<void>} addEvent
+ * @property {(events: TrackedEvent[], options?: {maxEvents?: number}) => Promise<void>} addEvents
  * @property {(match: Partial<TrackedEvent>, eventData?: Record<string, any>) => Promise<?TrackedEvent>} incrementDuplicateEvent
  * @property {() => Promise<Record<string, TrackedEvent[]>>} getEventsMap
  * @property {() => Promise<TrackedEvent[]>} getAllEvents

@@ -5,6 +5,7 @@ import { parseGoogleRequest } from "../src/background/parsers/google.js";
 import {
   DEFAULT_EXPECTED_EVENTS,
   EXPECTATION_IMPORT_TEMPLATE,
+  ISSUE_CATEGORY_LABELS,
   buildChecklist,
   buildHealthScore,
   buildIssues,
@@ -196,6 +197,114 @@ test("groups duplicate and expected-event issues", () => {
   assert.ok(issues.some((issue) => issue.message.includes("Expected event")));
 });
 
+test("builds central AuditIssue fields with category and evidence", () => {
+  const issues = buildIssues(
+    [
+      {
+        id: "purchase-1",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "Purchase",
+        eventData: { cd: { value: "10", currency: "USD" } },
+        source: "network",
+        parserSchemaVersion: 2,
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "Meta", eventName: "Purchase" }],
+  );
+
+  const dedupe = issues.find((issue) => issue.category === "deduplication");
+
+  assert.equal(ISSUE_CATEGORY_LABELS.deduplication, "Deduplication");
+  assert.equal(dedupe.severity, "warning");
+  assert.equal(dedupe.eventId, "purchase-1");
+  assert.equal(dedupe.source, "network");
+  assert.match(dedupe.evidence, /eventData\.event_id|eventData\.eid/i);
+  assert.match(dedupe.suggestion, /event_id/i);
+});
+
+test("merges DOM scanner evidence into installation, consent, and Google health issues", () => {
+  const scannerEvent = {
+    id: "scan-1",
+    platform: "Diagnostics",
+    pixelId: "Local Scanner",
+    eventName: "Tag Scanner Snapshot",
+    eventData: {
+      platforms: { Meta: false, TikTok: false, Google: true },
+      google: {
+        firstEventIndex: 1,
+        firstConfigIndex: -1,
+        eventBeforeConfig: true,
+        consentSeen: false,
+      },
+      cookies: { gclAw: false, gclAu: false },
+      scripts: [
+        {
+          host: "www.googletagmanager.com",
+          path: "/gtag/js",
+          id: "AW-123",
+          inHead: true,
+        },
+      ],
+    },
+    source: "scanner",
+    isDiagnostic: true,
+    parserSchemaVersion: 2,
+    timestamp: 10,
+  };
+  const googleAdsEvent = {
+    id: "ads-1",
+    platform: "Google Ads",
+    pixelId: "AW-123",
+    eventName: "Conversion (lead_a)",
+    eventData: { label: "lead_a", value: "1", currency_code: "USD" },
+    source: "network",
+    timestamp: 20,
+  };
+
+  const reportModel = buildReportModel({
+    events: [scannerEvent, googleAdsEvent],
+    expectedEvents: [
+      { platform: "Meta", eventName: "PageView" },
+      { platform: "Google Ads", eventName: "Conversion" },
+    ],
+    expectedPixels: { Meta: "123", "Google Ads": "AW-123" },
+  });
+
+  assert.equal(reportModel.scannerSummary.observed, true);
+  assert.equal(reportModel.parserSchemaVersion, 2);
+  assert.ok(
+    reportModel.issues.some(
+      (issue) =>
+        issue.category === "installation" &&
+        issue.source === "scanner" &&
+        issue.message.includes("Meta tag was expected"),
+    ),
+  );
+  assert.ok(reportModel.issues.some((issue) => issue.category === "consent"));
+  assert.ok(
+    reportModel.issues.some(
+      (issue) =>
+        issue.category === "google_tag_health" &&
+        issue.message.includes("config command"),
+    ),
+  );
+  assert.ok(
+    reportModel.issues.some(
+      (issue) =>
+        issue.category === "google_tag_health" &&
+        issue.message.includes("_gcl_"),
+    ),
+  );
+
+  const html = buildProfessionalReportHtml(reportModel);
+  assert.match(html, /Issue Summary/);
+  assert.match(html, /Consent &amp; Tag Health|Consent & Tag Health/);
+  assert.match(html, /Dedupe Readiness/);
+  assert.match(html, /schema v2/);
+});
+
 test("builds health score with capped issue deductions", () => {
   const health = buildHealthScore(
     [
@@ -320,6 +429,31 @@ test("builds professional HTML report without external dependencies", () => {
   assert.doesNotMatch(html, /(src|href)=["']https?:/i);
 });
 
+test("builds report model for a 5,000 event local session", () => {
+  const events = Array.from({ length: 5000 }, (_, index) => ({
+    id: `evt-${index}`,
+    platform: "Meta",
+    pixelId: "123",
+    eventName: "PageView",
+    eventData: {
+      fbp: "fb.1.1.1",
+      fbc: "fb.1.1.2",
+    },
+    source: "network",
+    timestamp: index + 1,
+  }));
+
+  const reportModel = buildReportModel({
+    events,
+    expectedEvents: [{ platform: "Meta", eventName: "PageView" }],
+    expectedPixels: { Meta: "123" },
+  });
+
+  assert.equal(reportModel.summary.total, 5000);
+  assert.equal(reportModel.issues.length, 0);
+  assert.equal(reportModel.checklist[0].status, "valid");
+});
+
 test("can omit raw payload appendix from professional report", () => {
   const reportModel = buildReportModel({
     auditRun: { domain: "shop.test", startedAt: 1, endedAt: 2 },
@@ -346,6 +480,7 @@ test("normalizes expanded settings with safe defaults", () => {
     maxEvents: "999999",
     sessionWindow: "bad",
     captureNetwork: false,
+    captureTagScanner: false,
     defaultView: "issues",
     rawExportScope: "visible",
     expectedPixels: { Meta: " 123 " },
@@ -355,6 +490,7 @@ test("normalizes expanded settings with safe defaults", () => {
   assert.equal(settings.maxEvents, 5000);
   assert.equal(settings.sessionWindow, 1800000);
   assert.equal(settings.captureNetwork, false);
+  assert.equal(settings.captureTagScanner, false);
   assert.equal(settings.defaultView, "issues");
   assert.equal(settings.rawExportScope, "visible");
   assert.deepEqual(settings.expectedPixels, { Meta: "123" });

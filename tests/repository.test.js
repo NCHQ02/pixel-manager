@@ -41,6 +41,31 @@ test("memory repository groups events by tab and trims newest per tab", async ()
   );
 });
 
+test("memory repository batches addEvents and trims per touched tab", async () => {
+  const repo = createMemoryEventRepository();
+  await repo.addEvents(
+    [
+      makeEvent({ id: "old", tabId: "1", timestamp: 1 }),
+      makeEvent({ id: "mid", tabId: "1", timestamp: 2 }),
+      makeEvent({ id: "new", tabId: "1", timestamp: 3 }),
+      makeEvent({ id: "other", tabId: "2", timestamp: 4 }),
+    ],
+    { maxEvents: 2 },
+  );
+
+  const eventsMap = await repo.getEventsMap();
+
+  assert.deepEqual(
+    eventsMap["1"].map((event) => event.id),
+    ["new", "mid"],
+  );
+  assert.deepEqual(
+    eventsMap["2"].map((event) => event.id),
+    ["other"],
+  );
+  assert.equal(eventsMap["1"][0].parserSchemaVersion, 1);
+});
+
 test("memory repository increments duplicate event without adding UI noise", async () => {
   const repo = createMemoryEventRepository();
   await repo.addEvent(

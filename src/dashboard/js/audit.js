@@ -7,6 +7,7 @@ import {
 } from "./utils.js";
 import {
   AUDIT_RULES,
+  AUDIT_PRESETS,
   DEFAULT_EXPECTED_EVENTS,
   EXPECTATION_IMPORT_TEMPLATE,
   EXPECTATION_PLATFORM_ALIASES,
@@ -15,7 +16,44 @@ import {
   SUPPORTED_EXPECTATION_PLATFORMS,
 } from "./audit-rules.js";
 
-export { AUDIT_RULES, DEFAULT_EXPECTED_EVENTS, EXPECTATION_IMPORT_TEMPLATE };
+export {
+  AUDIT_PRESETS,
+  AUDIT_RULES,
+  DEFAULT_EXPECTED_EVENTS,
+  EXPECTATION_IMPORT_TEMPLATE,
+};
+
+export const ISSUE_CATEGORY_LABELS = Object.freeze({
+  installation: "Installation",
+  event_quality: "Event Quality",
+  required_params: "Required Params",
+  deduplication: "Deduplication",
+  consent: "Consent",
+  google_tag_health: "Google Tag Health",
+  privacy: "Privacy",
+  duplicate_firing: "Duplicate Firing",
+  parser_confidence: "Parser Confidence",
+});
+
+export function createAuditIssue(input = {}) {
+  const event = input.event || {};
+  const message = String(input.message || "Review this tracking signal.");
+  const category = input.category || issueCategoryForMessage(message);
+  return {
+    severity: input.severity || "warning",
+    category,
+    platform: input.platform || event.platform || "Any",
+    eventName: input.eventName || event.eventName || "Audit",
+    pixelId: input.pixelId || event.pixelId || "",
+    message,
+    evidence: input.evidence || evidenceForIssue(message, event),
+    suggestion: input.suggestion || getIssueFixSuggestion({ message, event, category }),
+    source: input.source || event.source || "audit",
+    timestamp: input.timestamp || event.timestamp || Date.now(),
+    eventId: input.eventId === undefined ? event.id || null : input.eventId,
+    heuristic: !!input.heuristic,
+  };
+}
 
 export function normalizeExpectedEvent(event) {
   const platform = canonicalPlatform(event.platform);
@@ -169,6 +207,7 @@ export function buildIssues(
   expectedPixels = {},
 ) {
   const issues = [];
+  const normalizedExpectedEvents = normalizeExpectedEvents(expectedEvents);
 
   events.forEach((event) => {
     const warnings = auditEvent(event);
@@ -180,54 +219,58 @@ export function buildIssues(
       const isRequiredParamIssue = String(message).startsWith(
         "Missing required parameter:",
       );
-      issues.push({
+      issues.push(createAuditIssue({
         severity:
           status.key === "missing" || isRequiredParamIssue ? "error" : "warning",
-        platform: event.platform,
-        eventName: event.eventName,
-        pixelId: event.pixelId,
+        category: isRequiredParamIssue
+          ? "required_params"
+          : issueCategoryForMessage(message),
         message,
-        suggestion: getIssueFixSuggestion({ message, event }),
-        timestamp: event.timestamp,
-        eventId: event.id,
-      });
+        event,
+      }));
     });
 
     if (event.duplicateCount > 0) {
       const message = `Duplicate firing detected ${event.duplicateCount} time(s).`;
-      issues.push({
+      issues.push(createAuditIssue({
         severity: "warning",
-        platform: event.platform,
-        eventName: event.eventName,
-        pixelId: event.pixelId,
+        category: "duplicate_firing",
         message,
-        suggestion: getIssueFixSuggestion({ message, event }),
-        timestamp: event.timestamp,
-        eventId: event.id,
-      });
+        event,
+        evidence: `${event.platform} ${event.eventName} was merged ${event.duplicateCount} time(s) in the duplicate window.`,
+      }));
     }
+
+    issues.push(...buildObservedEventIssues(event));
   });
 
-  buildChecklist(events, expectedEvents, expectedPixels)
+  buildChecklist(events, normalizedExpectedEvents, expectedPixels)
     .filter((item) => !item.found)
     .forEach((item) => {
       const message = "Expected event was not observed in this audit session.";
-      issues.push({
+      issues.push(createAuditIssue({
         severity: "error",
+        category: "installation",
         platform: item.platform,
         eventName: item.eventName,
         pixelId: "",
         message,
-        suggestion: getIssueFixSuggestion({
-          message,
-          event: item,
-        }),
+        evidence: `${item.platform} ${item.eventName} did not appear in network, DataLayer, or scanner evidence for this audit window.`,
+        suggestion: getIssueFixSuggestion({ message, event: item }),
         timestamp: Date.now(),
         eventId: null,
-      });
+      }));
     });
 
-  return issues.sort((a, b) => b.timestamp - a.timestamp);
+  issues.push(
+    ...buildScannerIssues({
+      events,
+      expectedEvents: normalizedExpectedEvents,
+      expectedPixels,
+    }),
+  );
+
+  return dedupeIssues(issues).sort((a, b) => b.timestamp - a.timestamp);
 }
 
 export function buildHealthScore(
@@ -322,12 +365,410 @@ export function buildTimeline(events, expectedEvents = []) {
   });
 }
 
+function issueCategoryForMessage(message = "") {
+  const lowered = String(message).toLowerCase();
+  if (lowered.includes("plaintext") || lowered.includes("privacy") || lowered.includes("redacted")) {
+    return "privacy";
+  }
+  if (lowered.includes("duplicate firing")) return "duplicate_firing";
+  if (lowered.includes("event_id") || lowered.includes("dedup")) return "deduplication";
+  if (lowered.includes("missing required parameter")) return "required_params";
+  if (lowered.includes("consent")) return "consent";
+  if (lowered.includes("conversion linker") || lowered.includes("gtag") || lowered.includes("google tag")) {
+    return "google_tag_health";
+  }
+  if (lowered.includes("pixel id mismatch") || lowered.includes("expected event")) {
+    return "installation";
+  }
+  if (lowered.includes("unknown") || lowered.includes("parser")) return "parser_confidence";
+  return "event_quality";
+}
+
+function evidenceForIssue(message, event = {}) {
+  const source = event.source || "audit";
+  const platform = event.platform || "Any";
+  const name = event.eventName || "event";
+  const id = event.pixelId || "Unknown";
+  return `${source} evidence: ${platform} ${name} / ${id}. ${message}`;
+}
+
+function isConversionLike(event = {}) {
+  const normalized = normalizeEventName(event.eventName);
+  return [
+    "purchase",
+    "completepayment",
+    "placeanorder",
+    "lead",
+    "conversion",
+    "begincheckout",
+    "begin_checkout",
+    "floodlight",
+  ].some((candidate) => normalized.includes(candidate));
+}
+
+function buildObservedEventIssues(event) {
+  const issues = [];
+  if (!event || event.source === "scanner" || event.isDiagnostic) return issues;
+
+  if (!event.pixelId || event.pixelId === "Unknown") {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "parser_confidence",
+      event,
+      message: "Pixel or tag ID could not be confidently parsed.",
+      evidence: `The ${event.platform} request was captured, but its ID field resolved to Unknown.`,
+      heuristic: true,
+    }));
+  }
+
+  if (event.eventName === "Unknown") {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "parser_confidence",
+      event,
+      message: "Event name could not be confidently parsed.",
+      evidence: "The request matched a platform endpoint, but no known event name parameter was present.",
+      heuristic: true,
+    }));
+  }
+
+  if (isConversionLike(event)) {
+    if (
+      event.platform === "Meta" &&
+      !hasPath(event, "eventData.event_id|eventData.eid")
+    ) {
+      issues.push(createAuditIssue({
+        severity: "warning",
+        category: "deduplication",
+        event,
+        message: "Conversion-like Meta event is missing event_id/eid for browser/server deduplication.",
+        evidence: `${event.eventName} payload has no eventData.event_id or eventData.eid value.`,
+      }));
+    }
+
+    if (event.platform === "TikTok" && !hasPath(event, "eventData.event_id")) {
+      issues.push(createAuditIssue({
+        severity: "warning",
+        category: "deduplication",
+        event,
+        message: "Conversion-like TikTok event is missing event_id for Pixel/Events API deduplication.",
+        evidence: `${event.eventName} payload has no eventData.event_id value.`,
+      }));
+    }
+  }
+
+  if (
+    event.platform === "GA4" &&
+    event.eventName === "purchase" &&
+    !hasPath(event, "eventData.ep.transaction_id")
+  ) {
+    issues.push(createAuditIssue({
+      severity: "error",
+      category: "required_params",
+      event,
+      message: "GA4 purchase is missing transaction_id.",
+      evidence: "eventData.ep.transaction_id was not present on the captured GA4 purchase hit.",
+    }));
+  }
+
+  return issues;
+}
+
+function latestScannerEvent(events = []) {
+  return [...events]
+    .filter((event) => event.source === "scanner")
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0] || null;
+}
+
+function hasObservedPlatform(events, platform) {
+  if (platform === "Google") {
+    return events.some((event) =>
+      ["GA4", "Google Ads", "Floodlight"].includes(event.platform) &&
+      event.source !== "scanner" &&
+      !event.isDiagnostic,
+    );
+  }
+  return events.some(
+    (event) =>
+      event.platform === platform &&
+      event.source !== "scanner" &&
+      !event.isDiagnostic,
+  );
+}
+
+function expectedPlatformSet(expectedEvents = [], expectedPixels = {}) {
+  const platforms = new Set(expectedEvents.map((event) => event.platform));
+  Object.keys(expectedPixels || {}).forEach((platform) => platforms.add(platform));
+  return platforms;
+}
+
+function buildScannerIssues({ events, expectedEvents, expectedPixels }) {
+  const scannerEvent = latestScannerEvent(events);
+  if (!scannerEvent) return [];
+
+  const scanner = scannerEvent.eventData || {};
+  const issues = [];
+  const expectedPlatforms = expectedPlatformSet(expectedEvents, expectedPixels);
+  const googleExpected =
+    expectedPlatforms.has("GA4") ||
+    expectedPlatforms.has("Google Ads") ||
+    expectedPlatforms.has("Floodlight");
+  const googleObserved = hasObservedPlatform(events, "Google");
+
+  if (scanner.scannerError) {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "parser_confidence",
+      platform: "Diagnostics",
+      eventName: "Tag Scanner Snapshot",
+      pixelId: "Local Scanner",
+      message: "Local tag scanner could not complete.",
+      evidence: String(scanner.scannerError),
+      source: "scanner",
+      eventId: scannerEvent.id,
+      timestamp: scannerEvent.timestamp,
+      heuristic: true,
+    }));
+  }
+
+  [
+    ["Meta", scanner.platforms?.Meta],
+    ["TikTok", scanner.platforms?.TikTok],
+  ].forEach(([platform, detected]) => {
+    if (!expectedPlatforms.has(platform)) return;
+    const observed = hasObservedPlatform(events, platform);
+    if (!detected && !observed) {
+      issues.push(createAuditIssue({
+        severity: "error",
+        category: "installation",
+        platform,
+        eventName: "Installation",
+        pixelId: expectedPixels?.[platform] || "",
+        message: `${platform} tag was expected but not detected locally.`,
+        evidence: "No matching script/global scanner evidence and no captured network event were observed.",
+        source: "scanner",
+        eventId: scannerEvent.id,
+        timestamp: scannerEvent.timestamp,
+        heuristic: true,
+      }));
+    } else if (detected && !observed) {
+      issues.push(createAuditIssue({
+        severity: "warning",
+        category: "installation",
+        platform,
+        eventName: "Installation",
+        pixelId: expectedPixels?.[platform] || "",
+        message: `${platform} tag appears installed but no event fired in this audit window.`,
+        evidence: "Scanner saw a platform script/global, but no matching captured event was stored.",
+        source: "scanner",
+        eventId: scannerEvent.id,
+        timestamp: scannerEvent.timestamp,
+        heuristic: true,
+      }));
+    }
+  });
+
+  if (googleExpected && !scanner.platforms?.Google && !googleObserved) {
+    issues.push(createAuditIssue({
+      severity: "error",
+      category: "installation",
+      platform: "Google",
+      eventName: "Installation",
+      pixelId: expectedPixels?.GA4 || expectedPixels?.["Google Ads"] || "",
+      message: "Google tag or GTM container was expected but not detected locally.",
+      evidence: "No Google script/global scanner evidence and no GA4, Google Ads, or Floodlight hits were captured.",
+      source: "scanner",
+      eventId: scannerEvent.id,
+      timestamp: scannerEvent.timestamp,
+      heuristic: true,
+    }));
+  } else if (googleExpected && scanner.platforms?.Google && !googleObserved) {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "installation",
+      platform: "Google",
+      eventName: "Installation",
+      pixelId: expectedPixels?.GA4 || expectedPixels?.["Google Ads"] || "",
+      message: "Google tag or GTM container appears installed but no Google event fired in this audit window.",
+      evidence: "Scanner saw local Google tag evidence, but no GA4, Google Ads, or Floodlight hit was captured.",
+      source: "scanner",
+      eventId: scannerEvent.id,
+      timestamp: scannerEvent.timestamp,
+      heuristic: true,
+    }));
+  }
+
+  if ((googleExpected || googleObserved) && scanner.google?.eventBeforeConfig) {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "google_tag_health",
+      platform: "Google",
+      eventName: "gtag/dataLayer order",
+      pixelId: "",
+      message: "A gtag/DataLayer event appeared before a config command.",
+      evidence: `first event index ${scanner.google.firstEventIndex}, first config index ${scanner.google.firstConfigIndex}.`,
+      source: "scanner",
+      eventId: scannerEvent.id,
+      timestamp: scannerEvent.timestamp,
+      heuristic: true,
+    }));
+  }
+
+  if ((googleExpected || googleObserved) && scanner.platforms?.Google && !scanner.google?.consentSeen) {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "consent",
+      platform: "Google",
+      eventName: "Consent Mode",
+      pixelId: "",
+      message: "No local Google consent command was observed before or during the scan.",
+      evidence: "The scanner did not see a dataLayer/gtag consent command in the captured command history.",
+      source: "scanner",
+      eventId: scannerEvent.id,
+      timestamp: scannerEvent.timestamp,
+      heuristic: true,
+    }));
+  }
+
+  const hasAdsOrFloodlight = events.some((event) =>
+    ["Google Ads", "Floodlight"].includes(event.platform) &&
+    event.source !== "scanner",
+  );
+  if (
+    hasAdsOrFloodlight &&
+    scanner.platforms?.Google &&
+    !scanner.cookies?.gclAw &&
+    !scanner.cookies?.gclAu
+  ) {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "google_tag_health",
+      platform: "Google",
+      eventName: "Conversion Linker",
+      pixelId: "",
+      message: "No visible _gcl_* linker cookie was found during local scan.",
+      evidence: "This is heuristic local evidence only; account-side Tag Diagnostics is still the source of truth.",
+      source: "scanner",
+      eventId: scannerEvent.id,
+      timestamp: scannerEvent.timestamp,
+      heuristic: true,
+    }));
+  }
+
+  const lateScripts = (scanner.scripts || []).filter((script) => {
+    const host = script.host || "";
+    return (
+      !script.inHead &&
+      (host.includes("facebook") || host.includes("tiktok"))
+    );
+  });
+  if (lateScripts.length > 0) {
+    issues.push(createAuditIssue({
+      severity: "warning",
+      category: "installation",
+      platform: "Social Pixels",
+      eventName: "Script Placement",
+      pixelId: "",
+      message: "One or more social pixel scripts were not detected in the document head.",
+      evidence: lateScripts
+        .map((script) => `${script.host}${script.path}`)
+        .slice(0, 3)
+        .join(", "),
+      source: "scanner",
+      eventId: scannerEvent.id,
+      timestamp: scannerEvent.timestamp,
+      heuristic: true,
+    }));
+  }
+
+  return issues;
+}
+
+function dedupeIssues(issues) {
+  const seen = new Set();
+  return issues.filter((issue) => {
+    const key = [
+      issue.category,
+      issue.platform,
+      issue.eventName,
+      issue.pixelId,
+      issue.message,
+      issue.eventId || "",
+    ].join("::");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildIssueSummary(issues) {
+  const summary = {};
+  Object.keys(ISSUE_CATEGORY_LABELS).forEach((category) => {
+    summary[category] = { total: 0, errors: 0, warnings: 0, info: 0 };
+  });
+  issues.forEach((issue) => {
+    const bucket = summary[issue.category] || (summary[issue.category] = {
+      total: 0,
+      errors: 0,
+      warnings: 0,
+      info: 0,
+    });
+    bucket.total += 1;
+    if (issue.severity === "error") bucket.errors += 1;
+    else if (issue.severity === "info") bucket.info += 1;
+    else bucket.warnings += 1;
+  });
+  return summary;
+}
+
+function buildScannerSummary(events = []) {
+  const scannerEvent = latestScannerEvent(events);
+  if (!scannerEvent) {
+    return {
+      observed: false,
+      platforms: {},
+      google: {},
+      cookies: {},
+      scripts: [],
+    };
+  }
+  const data = scannerEvent.eventData || {};
+  return {
+    observed: true,
+    timestamp: scannerEvent.timestamp,
+    platforms: data.platforms || {},
+    google: data.google || {},
+    cookies: data.cookies || {},
+    scripts: data.scripts || [],
+  };
+}
+
+function maxParserSchemaVersion(events = []) {
+  return events.reduce(
+    (max, event) => Math.max(max, Number(event.parserSchemaVersion || 1)),
+    1,
+  );
+}
+
 export function getIssueFixSuggestion(issueOrInput, maybeEvent) {
   const message = String(issueOrInput?.message || issueOrInput || "");
   const event = issueOrInput?.event || maybeEvent || {};
+  const category = issueOrInput?.category || issueCategoryForMessage(message);
   const lowered = message.toLowerCase();
   const eventName = String(event.eventName || "").toLowerCase();
 
+  if (category === "installation") {
+    return "Confirm the tag is installed on this page, fires inside the audited flow, and matches the expected pixel or tag ID.";
+  }
+  if (category === "google_tag_health") {
+    return "Review Google tag/GTM setup, config order, conversion linker, and the selected tag ID or conversion label.";
+  }
+  if (category === "consent") {
+    return "Verify Consent Mode default/update commands fire before Google measurement tags and match your CMP policy.";
+  }
+  if (category === "parser_confidence") {
+    return "Open the raw payload and confirm the ID/event-name parameter; add a fixture if this endpoint is valid.";
+  }
   if (lowered.includes("duplicate firing")) {
     return "Check duplicate pixel installs, GTM triggers, or theme/app overlap.";
   }
@@ -374,6 +815,8 @@ export function buildReportModel({
   const health = buildHealthScore(safeEvents, expectedEvents, expectedPixels);
   const timeline = buildTimeline(safeEvents, expectedEvents);
   const platformBreakdown = buildPlatformBreakdown(safeEvents);
+  const issueSummary = buildIssueSummary(issues);
+  const scannerSummary = buildScannerSummary(safeEvents);
   const generatedAt = Date.now();
 
   return {
@@ -392,6 +835,9 @@ export function buildReportModel({
     expectedEvents,
     expectedPixels,
     summary,
+    issueSummary,
+    scannerSummary,
+    parserSchemaVersion: maxParserSchemaVersion(safeEvents),
     checklist,
     issues,
     health,
@@ -433,6 +879,37 @@ export function buildProfessionalReportHtml(reportModel) {
     model.issues.length > 0
       ? `${model.issues.length} issue(s) need review before campaign spend starts.`
       : "No blocking issues detected in this audit window.";
+  const issueCategoryTiles =
+    Object.entries(model.issueSummary || {})
+      .filter(([, item]) => item.total > 0)
+      .map(([category, item]) =>
+        summaryTile(
+          ISSUE_CATEGORY_LABELS[category] || category,
+          `${item.total} issue(s)`,
+          item.errors ? "accent-pink" : "accent-cream",
+        ),
+      )
+      .join("") || summaryTile("Issue Categories", "None", "accent-mint");
+  const scannerSummary = model.scannerSummary || {};
+  const scannerPlatforms = scannerSummary.observed
+    ? Object.entries(scannerSummary.platforms || {})
+        .filter(([, detected]) => detected)
+        .map(([platform]) => platform)
+        .join(", ") || "No platform tags detected"
+    : "No scanner snapshot captured";
+  const scannerScripts = scannerSummary.observed
+    ? String((scannerSummary.scripts || []).length)
+    : "0";
+  const googleSummary = scannerSummary.google || {};
+  const cookieSummary = scannerSummary.cookies || {};
+  const dedupeIssues = model.issues.filter((issue) =>
+    ["deduplication", "duplicate_firing"].includes(issue.category),
+  );
+  const tagHealthIssues = model.issues.filter((issue) =>
+    ["installation", "consent", "google_tag_health", "parser_confidence"].includes(
+      issue.category,
+    ),
+  );
 
   return `<!doctype html>
 <html lang="en">
@@ -638,6 +1115,29 @@ export function buildProfessionalReportHtml(reportModel) {
         font-size: 26px;
         letter-spacing: -0.3px;
       }
+      .scanner-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .scanner-card {
+        border: 1px solid var(--hairline);
+        border-radius: 16px;
+        background: #fff;
+        padding: 18px;
+      }
+      .scanner-card strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 20px;
+        overflow-wrap: anywhere;
+      }
+      .evidence {
+        display: block;
+        margin-top: 6px;
+        color: #444;
+        font-size: 13px;
+      }
       .executive-card {
         display: grid;
         grid-template-columns: minmax(0, 1.1fr) minmax(240px, .9fr);
@@ -748,6 +1248,7 @@ export function buildProfessionalReportHtml(reportModel) {
         .score-grid,
         .executive-card,
         .meta,
+        .scanner-grid,
         .summary-grid { grid-template-columns: 1fr; }
         h1 { font-size: 42px; }
       }
@@ -806,6 +1307,61 @@ export function buildProfessionalReportHtml(reportModel) {
       <section class="section">
         <div class="section-heading">
           <div>
+            <p class="eyebrow">Issue Summary</p>
+            <h2>Commercial V1 diagnostics by category</h2>
+          </div>
+          <span class="pill pill-soft">schema v${escapeHtml(model.parserSchemaVersion || 1)}</span>
+        </div>
+        <div class="summary-grid">
+          ${issueCategoryTiles}
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Consent & Tag Health</p>
+            <h2>Local DOM scanner evidence</h2>
+          </div>
+          <span class="pill ${scannerSummary.observed ? "pill-valid" : "pill-soft"}">${scannerSummary.observed ? "scanner observed" : "scanner missing"}</span>
+        </div>
+        <div class="scanner-grid">
+          ${scannerTile("Detected Platforms", scannerPlatforms)}
+          ${scannerTile("Relevant Scripts", scannerScripts)}
+          ${scannerTile("Google Consent", googleSummary.consentSeen ? "Observed" : "Not observed")}
+          ${scannerTile("GCL Linker Cookies", cookieSummary.gclAw || cookieSummary.gclAu ? "Observed" : "Not visible")}
+        </div>
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr><th>Category</th><th>Platform</th><th>Finding</th><th>Evidence</th><th>Fix Step</th></tr>
+          </thead>
+          <tbody>
+            ${tagHealthIssues.length ? tagHealthIssues.map(renderReadinessIssueRow).join("") : `<tr><td colspan="5">No local installation, consent, Google tag health, or parser-confidence issues detected.</td></tr>`}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Dedupe Readiness</p>
+            <h2>Browser and server-side merge signals</h2>
+          </div>
+          <span class="pill ${dedupeIssues.length ? "pill-warning" : "pill-valid"}">${dedupeIssues.length} finding(s)</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Category</th><th>Platform</th><th>Event</th><th>Evidence</th><th>Fix Step</th></tr>
+          </thead>
+          <tbody>
+            ${dedupeIssues.length ? dedupeIssues.map(renderReadinessIssueRow).join("") : `<tr><td colspan="5">No duplicate firing or browser/server deduplication gaps detected locally.</td></tr>`}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
             <p class="eyebrow">Funnel Timeline</p>
             <h2>Expected event order</h2>
           </div>
@@ -844,10 +1400,10 @@ export function buildProfessionalReportHtml(reportModel) {
         </div>
         <table>
           <thead>
-            <tr><th>Severity</th><th>Platform</th><th>Event</th><th>Detected Problem</th><th>Suggested Fix</th></tr>
+            <tr><th>Severity</th><th>Category</th><th>Source</th><th>Platform</th><th>Event</th><th>Detected Problem</th><th>Suggested Fix</th></tr>
           </thead>
           <tbody>
-            ${model.issues.length ? model.issues.map(renderReportIssueRow).join("") : `<tr><td colspan="5">No issues detected in this audit.</td></tr>`}
+            ${model.issues.length ? model.issues.map(renderReportIssueRow).join("") : `<tr><td colspan="7">No issues detected in this audit.</td></tr>`}
           </tbody>
         </table>
       </section>
@@ -1081,6 +1637,14 @@ function summaryTile(label, value, accent = "") {
   return `<div class="summary-tile ${escapeHtml(accent)}"><span class="eyebrow">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
+function scannerTile(label, value) {
+  return `<div class="scanner-card"><span class="eyebrow">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function issueCategoryLabel(category) {
+  return ISSUE_CATEGORY_LABELS[category] || category || "Event Quality";
+}
+
 function renderReportTimelineStep(step) {
   const label =
     step.status === "missing"
@@ -1115,9 +1679,21 @@ function renderReportChecklistRow(item) {
 function renderReportIssueRow(issue) {
   return `<tr>
     <td><span class="pill ${issue.severity === "error" ? "pill-error" : "pill-warning"}">${escapeHtml(issue.severity)}</span></td>
+    <td>${escapeHtml(issueCategoryLabel(issue.category))}</td>
+    <td>${escapeHtml(issue.source || "audit")}${issue.heuristic ? `<span class="evidence">heuristic</span>` : ""}</td>
     <td>${escapeHtml(issue.platform)}</td>
     <td>${escapeHtml(issue.eventName)}</td>
-    <td>${escapeHtml(issue.message)}</td>
+    <td>${escapeHtml(issue.message)}<span class="evidence">${escapeHtml(issue.evidence || "No evidence snippet available.")}</span></td>
+    <td>${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</td>
+  </tr>`;
+}
+
+function renderReadinessIssueRow(issue) {
+  return `<tr>
+    <td>${escapeHtml(issueCategoryLabel(issue.category))}</td>
+    <td>${escapeHtml(issue.platform)}</td>
+    <td>${escapeHtml(issue.eventName)}</td>
+    <td>${escapeHtml(issue.evidence || issue.message)}</td>
     <td>${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</td>
   </tr>`;
 }

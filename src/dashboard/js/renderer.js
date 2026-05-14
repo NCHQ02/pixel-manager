@@ -12,6 +12,7 @@ export class PixelRenderer {
     this.container = document.getElementById(containerId);
     this.emptyState = document.getElementById(emptyStateId);
     this.onSelectEvent = options.onSelectEvent || (() => {});
+    this.maxRenderedEvents = options.maxRenderedEvents || 300;
     this.selectedEventId = null;
   }
 
@@ -41,9 +42,15 @@ export class PixelRenderer {
 
   renderStream(events) {
     const fragment = document.createDocumentFragment();
-    events.forEach((event) => {
+    const visibleEvents = events.slice(0, this.maxRenderedEvents);
+    visibleEvents.forEach((event) => {
       fragment.appendChild(this.createEventCard(event));
     });
+    if (events.length > visibleEvents.length) {
+      fragment.appendChild(
+        this.createWindowNotice(events.length - visibleEvents.length),
+      );
+    }
     this.container.appendChild(fragment);
   }
 
@@ -62,12 +69,25 @@ export class PixelRenderer {
 
       session.events
         .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, this.maxRenderedEvents)
         .forEach((event) => {
           fragment.appendChild(this.createEventCard(event));
         });
+      if (session.events.length > this.maxRenderedEvents) {
+        fragment.appendChild(
+          this.createWindowNotice(session.events.length - this.maxRenderedEvents),
+        );
+      }
     });
 
     this.container.appendChild(fragment);
+  }
+
+  createWindowNotice(hiddenCount) {
+    const note = document.createElement("div");
+    note.className = "event-list-window-note";
+    note.textContent = `${hiddenCount} older event(s) kept in storage and exports. Narrow filters to inspect them.`;
+    return note;
   }
 
   createEventCard(event) {

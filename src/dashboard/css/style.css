@@ -622,6 +622,17 @@ button.timeline-step {
   border-color: var(--colors-ink);
 }
 
+.event-list-window-note {
+  border: 1px dashed var(--colors-border);
+  border-radius: 8px;
+  background: var(--colors-surface);
+  padding: var(--spacing-md);
+  color: var(--colors-ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
 .event-platform,
 .platform-label {
   display: flex;
@@ -719,6 +730,35 @@ button.timeline-step {
   padding: var(--spacing-md);
 }
 
+.preset-workflows {
+  grid-column: 1 / -1;
+}
+
+.workflow-preset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+
+.workflow-preset-btn {
+  display: grid;
+  gap: 7px;
+  min-height: 112px;
+  align-content: start;
+  border: 1px solid var(--colors-border);
+  border-radius: 8px;
+  background: white;
+  padding: var(--spacing-md);
+  color: var(--colors-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.workflow-preset-btn:hover {
+  border-color: var(--colors-ink);
+}
+
 .preset-list {
   display: grid;
   gap: 8px;
@@ -793,6 +833,20 @@ button.issue-row {
   cursor: pointer;
   font: inherit;
   text-align: left;
+}
+
+.issue-meta {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.evidence-text {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .issue-fix {

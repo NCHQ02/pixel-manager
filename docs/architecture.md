@@ -18,11 +18,39 @@ OmniSignal is a Manifest V3 extension with three runtime areas:
    content scripts.
 3. When an audited tab starts loading, the current tab event canvas is cleared
    and fingerprints are reset.
-4. Network requests and DataLayer pushes are parsed, sanitized, deduplicated,
-   and written to IndexedDB through `src/shared/event-repository.js`.
+4. Network requests, DataLayer pushes, and DOM tag scanner snapshots are parsed,
+   sanitized, deduplicated, and written to IndexedDB through
+   `src/shared/event-repository.js`.
 5. The background broadcasts `EVENTS_CHANGED`.
 6. The dashboard store refreshes events and audit runs from IndexedDB, then
    existing render functions update the UI.
+
+## Commercial V1 Diagnostics
+
+- `src/dashboard/js/audit.js` owns the central `AuditIssue` shape used by the
+  dashboard, event drawer, and HTML report. Every issue carries severity,
+  category, platform, event name, pixel ID, evidence, suggestion, source, and
+  event ID when available.
+- Issue categories are installation, event quality, required parameters,
+  deduplication, consent, Google tag health, privacy, duplicate firing, and
+  parser confidence.
+- `src/content/inject.js` performs local-only DOM/tag scanning for social pixel
+  globals, Google tags, GTM containers, script placement, DataLayer command
+  order, consent command evidence, and visible `_gcl_*` cookies. `content.js`
+  relays scanner snapshots with `TAG_SCAN_RESULT`.
+- Scanner snapshots are stored as diagnostic `TrackedEvent` records with
+  `source: "scanner"` and are included in audit/report models even when normal
+  diagnostic events are hidden from the live stream.
+- Parser output includes `parserSchemaVersion` so fixtures and reports can
+  identify which local parsing contract produced the evidence.
+
+## Scale Notes
+
+- Network and DataLayer capture write in batches through `addEvents`.
+- Dashboard store refreshes are throttled with `requestAnimationFrame`.
+- The live event stream renders a bounded window while exports and reports still
+  use the retained event set.
+- Retention remains local and bounded by the per-tab max event setting.
 
 ## Ownership Boundaries
 

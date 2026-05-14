@@ -1,111 +1,119 @@
-const previousOmniSignalState = globalThis.__OMNI_SIGNAL_CONTENT_STATE;
-if (previousOmniSignalState?.teardown) {
-  previousOmniSignalState.teardown();
-}
-
-const omniSignalState = {
-  active: true,
-  cleanup: [],
-  teardown() {
-    this.active = false;
-    this.cleanup.splice(0).forEach((fn) => {
-      try {
-        fn();
-      } catch (_e) {}
-    });
-    const overlay = document.getElementById("omni-signal-overlay");
-    if (overlay) overlay.remove();
-  },
-};
-
-globalThis.__OMNI_SIGNAL_CONTENT_STATE = omniSignalState;
-globalThis.__OMNI_SIGNAL_CONTENT_LOADED = true;
-
-function hasRuntimeContext() {
-  try {
-    return !!chrome?.runtime?.id;
-  } catch (_e) {
-    return false;
-  }
-}
-
-function deactivateContentScript() {
-  omniSignalState.teardown();
-}
-
-function safeSendMessage(message) {
-  if (!omniSignalState.active || !hasRuntimeContext()) {
-    deactivateContentScript();
-    return;
+(() => {
+  const previousOmniSignalState = globalThis.__OMNI_SIGNAL_CONTENT_STATE;
+  if (previousOmniSignalState?.teardown) {
+    previousOmniSignalState.teardown();
   }
 
-  try {
-    chrome.runtime.sendMessage(message, () => {
-      try {
-        if (chrome.runtime.lastError) {
-          const messageText = chrome.runtime.lastError.message || "";
-          if (messageText.includes("Extension context invalidated")) {
-            deactivateContentScript();
+  const omniSignalState = {
+    active: true,
+    cleanup: [],
+    teardown() {
+      this.active = false;
+      this.cleanup.splice(0).forEach((fn) => {
+        try {
+          fn();
+        } catch (_e) {}
+      });
+      const overlay = document.getElementById("omni-signal-overlay");
+      if (overlay) overlay.remove();
+    },
+  };
+
+  globalThis.__OMNI_SIGNAL_CONTENT_STATE = omniSignalState;
+  globalThis.__OMNI_SIGNAL_CONTENT_LOADED = true;
+
+  function hasRuntimeContext() {
+    try {
+      return !!chrome?.runtime?.id;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function deactivateContentScript() {
+    omniSignalState.teardown();
+  }
+
+  function safeSendMessage(message) {
+    if (!omniSignalState.active || !hasRuntimeContext()) {
+      deactivateContentScript();
+      return;
+    }
+
+    try {
+      chrome.runtime.sendMessage(message, () => {
+        try {
+          if (chrome.runtime.lastError) {
+            const messageText = chrome.runtime.lastError.message || "";
+            if (messageText.includes("Extension context invalidated")) {
+              deactivateContentScript();
+            }
           }
+        } catch (_e) {
+          deactivateContentScript();
         }
-      } catch (_e) {
-        deactivateContentScript();
-      }
-    });
-  } catch (_e) {
-    deactivateContentScript();
+      });
+    } catch (_e) {
+      deactivateContentScript();
+    }
   }
-}
 
-function addWindowListener(type, handler, options) {
-  window.addEventListener(type, handler, options);
-  omniSignalState.cleanup.push(() =>
-    window.removeEventListener(type, handler, options),
-  );
-}
-
-function addRuntimeListener(handler) {
-  if (!hasRuntimeContext()) return;
-  try {
-    chrome.runtime.onMessage.addListener(handler);
-    omniSignalState.cleanup.push(() => {
-      try {
-        chrome.runtime.onMessage.removeListener(handler);
-      } catch (_e) {}
-    });
-  } catch (_e) {
-    deactivateContentScript();
+  function addWindowListener(type, handler, options) {
+    window.addEventListener(type, handler, options);
+    omniSignalState.cleanup.push(() =>
+      window.removeEventListener(type, handler, options),
+    );
   }
-}
 
-addWindowListener("PixelTracker_DataLayerPush", (event) => {
-  safeSendMessage({
-    type: "DATALAYER_PUSH",
-    data: event.detail,
+  function addRuntimeListener(handler) {
+    if (!hasRuntimeContext()) return;
+    try {
+      chrome.runtime.onMessage.addListener(handler);
+      omniSignalState.cleanup.push(() => {
+        try {
+          chrome.runtime.onMessage.removeListener(handler);
+        } catch (_e) {}
+      });
+    } catch (_e) {
+      deactivateContentScript();
+    }
+  }
+
+  addWindowListener("PixelTracker_DataLayerPush", (event) => {
+    safeSendMessage({
+      type: "DATALAYER_PUSH",
+      data: event.detail,
+    });
   });
-});
 
-addWindowListener("PixelTracker_DataLayerHistory", (event) => {
-  safeSendMessage({
-    type: "DATALAYER_HISTORY",
-    data: event.detail,
+  addWindowListener("PixelTracker_DataLayerHistory", (event) => {
+    safeSendMessage({
+      type: "DATALAYER_HISTORY",
+      data: event.detail,
+    });
   });
-});
 
-let overlayElement = null;
-let overlayCount = 0;
+  addWindowListener("PixelTracker_TagScan", (event) => {
+    safeSendMessage({
+      type: "TAG_SCAN_RESULT",
+      data: event.detail,
+    });
+  });
 
-function createOverlay() {
-  if (!omniSignalState.active) return;
-  if (overlayElement?.isConnected) return;
+  let overlayElement = null;
+  let overlayCount = 0;
 
-  const existingOverlay = document.getElementById("omni-signal-overlay");
-  if (existingOverlay) existingOverlay.remove();
+  function createOverlay() {
+    if (!omniSignalState.active) return;
+    if (overlayElement?.isConnected) return;
 
-  overlayElement = document.createElement("div");
-  overlayElement.id = "omni-signal-overlay";
+    const existingOverlay = document.getElementById("omni-signal-overlay");
+    if (existingOverlay) existingOverlay.remove();
 
-  const styles = `
+    overlayElement = document.createElement("div");
+    overlayElement.id = "omni-signal-overlay";
+
+    const styles = `
     #omni-signal-overlay {
       position: fixed;
       bottom: 24px;
@@ -154,13 +162,13 @@ function createOverlay() {
     }
   `;
 
-  const styleSheet = document.createElement("style");
-  styleSheet.id = "omni-signal-overlay-style";
-  styleSheet.innerText = styles;
-  document.head.appendChild(styleSheet);
-  omniSignalState.cleanup.push(() => styleSheet.remove());
+    const styleSheet = document.createElement("style");
+    styleSheet.id = "omni-signal-overlay-style";
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+    omniSignalState.cleanup.push(() => styleSheet.remove());
 
-  overlayElement.innerHTML = `
+    overlayElement.innerHTML = `
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="m22 12-4.3-4.3" />
       <path d="M22 12H2" />
@@ -170,44 +178,48 @@ function createOverlay() {
     <div class="count-badge" style="display: none;">0</div>
   `;
 
-  overlayElement.addEventListener("click", () => {
-    safeSendMessage({ type: "OPEN_DASHBOARD" });
-  });
+    overlayElement.addEventListener("click", () => {
+      safeSendMessage({ type: "OPEN_DASHBOARD" });
+    });
 
-  document.body.appendChild(overlayElement);
-  omniSignalState.cleanup.push(() => overlayElement?.remove());
-}
+    document.body.appendChild(overlayElement);
+    omniSignalState.cleanup.push(() => overlayElement?.remove());
+  }
 
-function updateOverlay(count) {
-  if (!omniSignalState.active) return;
-  if (!overlayElement?.isConnected) createOverlay();
+  function updateOverlay(count) {
+    if (!omniSignalState.active) return;
+    if (!overlayElement?.isConnected) createOverlay();
 
-  const badge = overlayElement?.querySelector(".count-badge");
-  if (!badge) return;
+    const badge = overlayElement?.querySelector(".count-badge");
+    if (!badge) return;
 
-  if (count > 0) {
-    badge.style.display = "block";
-    badge.textContent = count > 99 ? "99+" : count;
+    if (count > 0) {
+      badge.style.display = "block";
+      badge.textContent = count > 99 ? "99+" : count;
 
-    if (count > overlayCount) {
-      overlayElement.classList.remove("pulse");
-      void overlayElement.offsetWidth;
-      overlayElement.classList.add("pulse");
+      if (count > overlayCount) {
+        overlayElement.classList.remove("pulse");
+        void overlayElement.offsetWidth;
+        overlayElement.classList.add("pulse");
+      }
+    } else {
+      badge.style.display = "none";
     }
+    overlayCount = count;
+  }
+
+  if (
+    document.readyState === "complete" ||
+    document.readyState === "interactive"
+  ) {
+    createOverlay();
   } else {
-    badge.style.display = "none";
+    addWindowListener("DOMContentLoaded", createOverlay);
   }
-  overlayCount = count;
-}
 
-if (document.readyState === "complete" || document.readyState === "interactive") {
-  createOverlay();
-} else {
-  addWindowListener("DOMContentLoaded", createOverlay);
-}
-
-addRuntimeListener((message) => {
-  if (message.type === "PIXEL_EVENT_CAPTURED") {
-    updateOverlay(message.eventCount);
-  }
-});
+  addRuntimeListener((message) => {
+    if (message.type === "PIXEL_EVENT_CAPTURED") {
+      updateOverlay(message.eventCount);
+    }
+  });
+})();

@@ -28,6 +28,7 @@ function normalizeEvent(event) {
     isDiagnostic: false,
     status: "valid",
     source: "network",
+    parserSchemaVersion: 1,
     ...event,
     tabId: String(event.tabId ?? "unknown"),
     timestamp: Number(event.timestamp || Date.now()),
@@ -166,12 +167,24 @@ export function createIndexedDbEventRepository(idb = globalThis.indexedDB) {
   }
 
   async function addEvent(event, options = {}) {
-    const normalized = normalizeEvent(event);
+    await addEvents([event], options);
+  }
+
+  async function addEvents(events, options = {}) {
+    const normalizedEvents = (Array.isArray(events) ? events : [])
+      .filter(Boolean)
+      .map(normalizeEvent);
+    if (normalizedEvents.length === 0) return;
+
     const db = await getDb();
     const { tx, store } = txStore(db, STORE_EVENTS, "readwrite");
-    store.put(normalized);
+    normalizedEvents.forEach((event) => store.put(event));
     await transactionDone(tx);
-    await pruneTab(normalized.tabId, options.maxEvents);
+    await Promise.all(
+      [...new Set(normalizedEvents.map((event) => event.tabId))].map((tabId) =>
+        pruneTab(tabId, options.maxEvents),
+      ),
+    );
   }
 
   async function incrementDuplicateEvent(match, eventData = {}) {
@@ -298,6 +311,7 @@ export function createIndexedDbEventRepository(idb = globalThis.indexedDB) {
   return {
     init,
     addEvent,
+    addEvents,
     incrementDuplicateEvent,
     getEventsMap,
     getAllEvents,
@@ -334,13 +348,23 @@ export function createMemoryEventRepository() {
   }
 
   async function addEvent(event, options = {}) {
-    const normalized = normalizeEvent(event);
-    events.set(normalized.id, normalized);
+    await addEvents([event], options);
+  }
+
+  async function addEvents(batch, options = {}) {
+    const normalizedEvents = (Array.isArray(batch) ? batch : [])
+      .filter(Boolean)
+      .map(normalizeEvent);
+    normalizedEvents.forEach((normalized) => {
+      events.set(normalized.id, normalized);
+    });
+
     if (options.maxEvents) {
-      const stale = (await getEventsByTab(normalized.tabId)).slice(
-        options.maxEvents,
-      );
-      stale.forEach((item) => events.delete(item.id));
+      const tabIds = [...new Set(normalizedEvents.map((item) => item.tabId))];
+      for (const tabId of tabIds) {
+        const stale = (await getEventsByTab(tabId)).slice(options.maxEvents);
+        stale.forEach((item) => events.delete(item.id));
+      }
     }
   }
 
@@ -415,6 +439,7 @@ export function createMemoryEventRepository() {
   return {
     init: async () => {},
     addEvent,
+    addEvents,
     incrementDuplicateEvent,
     getEventsMap,
     getAllEvents,

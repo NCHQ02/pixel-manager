@@ -4,6 +4,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   duplicateWindow: 1500,
   captureNetwork: true,
   captureDataLayer: true,
+  captureTagScanner: true,
   captureDiagnostics: true,
   restoreWorkspace: true,
   autoSaveWorkspace: true,
@@ -103,6 +104,10 @@ export function normalizeSettings(rawSettings = {}) {
     captureDataLayer: coerceBoolean(
       raw.captureDataLayer,
       DEFAULT_SETTINGS.captureDataLayer,
+    ),
+    captureTagScanner: coerceBoolean(
+      raw.captureTagScanner,
+      DEFAULT_SETTINGS.captureTagScanner,
     ),
     captureDiagnostics: coerceBoolean(
       raw.captureDiagnostics,
