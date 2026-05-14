@@ -90,10 +90,20 @@
     return layer.slice(0, 100).map(function(item, index) {
       const normalizedItem = normalizeDataLayerItem(item);
       if (Array.isArray(normalizedItem)) {
+        const type = typeof normalizedItem[0] === 'string' ? normalizedItem[0] : 'array';
+        const state =
+          type === 'consent' &&
+          normalizedItem[2] &&
+          typeof normalizedItem[2] === 'object' &&
+          !Array.isArray(normalizedItem[2])
+            ? safeClone(normalizedItem[2])
+            : null;
         return {
           index: index,
-          type: typeof normalizedItem[0] === 'string' ? normalizedItem[0] : 'array',
-          name: typeof normalizedItem[1] === 'string' ? normalizedItem[1] : ''
+          type: type,
+          name: typeof normalizedItem[1] === 'string' ? normalizedItem[1] : '',
+          mode: type === 'consent' && typeof normalizedItem[1] === 'string' ? normalizedItem[1] : '',
+          state: state
         };
       }
       if (normalizedItem && typeof normalizedItem === 'object') {

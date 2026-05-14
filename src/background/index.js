@@ -63,6 +63,20 @@ chrome.action.onClicked.addListener(async (tab) => {
   openDashboard(chrome);
 });
 
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+  if (details.frameId !== 0) return;
+  ready.then(async () => {
+    const cleared = await sessionManager.handleNavigationStarted(
+      details.tabId,
+      details.url,
+    );
+    if (cleared) {
+      await captureEngine.notifyEventsChanged(details.tabId);
+      await captureEngine.notifyOverlay(details.tabId);
+    }
+  });
+});
+
 chrome.tabs.onRemoved.addListener((tabId) => {
   ready.then(() => sessionManager.handleTabRemoved(tabId));
 });

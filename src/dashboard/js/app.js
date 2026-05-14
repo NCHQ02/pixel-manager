@@ -48,6 +48,7 @@ const state = {
   selectedTabId: "all",
   isSessionView: false,
   selectedEventId: null,
+  selectedTagFilter: null,
   expectedPixels: {},
   expectedEvents: [],
 };
@@ -82,12 +83,18 @@ const els = {
   summaryEvents: document.getElementById("summary-events"),
   summaryPass: document.getElementById("summary-pass"),
   summaryIssues: document.getElementById("summary-issues"),
+  summaryCapi: document.getElementById("summary-capi"),
+  summaryCapiLabel: document.getElementById("summary-capi-label"),
+  summaryConsent: document.getElementById("summary-consent"),
+  summaryConsentLabel: document.getElementById("summary-consent-label"),
   summaryRedactions: document.getElementById("summary-redactions"),
   qaStepper: document.getElementById("qa-stepper"),
   overviewTimeline: document.getElementById("overview-timeline"),
   liveTimeline: document.getElementById("live-timeline"),
   tagsSummaryContainer: document.getElementById("tags-summary-container"),
   tagsSummaryList: document.getElementById("tags-summary-list"),
+  activeTagFilter: document.getElementById("active-tag-filter"),
+  clearTagFilterBtn: document.getElementById("clear-tag-filter-btn"),
   expectationPresets: document.getElementById("expectation-presets"),
   expectedPixelInputs: [...document.querySelectorAll(".expected-pixel-input")],
   customPlatformSelect: document.getElementById("custom-platform-select"),
@@ -164,6 +171,7 @@ function hydrateWorkspaceState() {
   state.platformFilter = filters.platformFilter || settings.defaultPlatformFilter;
   state.statusFilter = filters.statusFilter || settings.defaultStatusFilter;
   state.selectedTabId = filters.selectedTabId || "all";
+  state.selectedTagFilter = normalizeTagFilter(filters.selectedTagFilter);
   state.isSessionView =
     filters.isSessionView === undefined
       ? settings.defaultSessionView
@@ -201,6 +209,47 @@ function getEvents(options = {}) {
   return selectEvents(store, state, options);
 }
 
+function normalizeTagFilter(value) {
+  if (!value || typeof value !== "object") return null;
+  const platform = String(value.platform || "").trim();
+  const pixelId = String(value.pixelId || "").trim();
+  return platform && pixelId ? { platform, pixelId } : null;
+}
+
+function tagFilterKey(value) {
+  const normalized = normalizeTagFilter(value);
+  return normalized ? `${normalized.platform}::${normalized.pixelId}` : "";
+}
+
+function isActiveTagFilter(value) {
+  return tagFilterKey(value) === tagFilterKey(state.selectedTagFilter);
+}
+
+function platformFilterAllowsTag(platformFilter, tagFilter) {
+  if (!tagFilter) return true;
+  if (platformFilter === "All") return true;
+  if (platformFilter === "Google") {
+    return ["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(
+      tagFilter.platform,
+    );
+  }
+  return platformFilter === tagFilter.platform;
+}
+
+function clearTagFilter({ persist = true, render = true } = {}) {
+  state.selectedTagFilter = null;
+  if (persist) scheduleDraftSave();
+  if (render) renderAll();
+}
+
+function setTagFilter(tagFilter) {
+  state.selectedTagFilter = isActiveTagFilter(tagFilter)
+    ? null
+    : normalizeTagFilter(tagFilter);
+  scheduleDraftSave();
+  renderAll();
+}
+
 function shouldKeepDiagnosticForAnalysis(event, includeDiagnostics = false) {
   return includeDiagnostics || !event.isDiagnostic || event.source === "scanner";
 }
@@ -212,6 +261,7 @@ function getAnalysisEvents({ filtered = false, includeDiagnostics = false } = {}
         applyPlatform: false,
         applyStatus: false,
         applySearch: false,
+        applyTag: false,
         includeDiagnostics: true,
       });
   return events.filter((event) =>
@@ -223,6 +273,7 @@ function renderAll() {
   if (!hydrated) return;
   const auditEvents = getAnalysisEvents();
   const visibleEvents = getEvents();
+  const tagSummaryEvents = getEvents({ applyTag: false });
   const auditRun = getActiveAuditRun();
   const reportModel = buildReportModel({
     events: auditEvents,
@@ -235,7 +286,7 @@ function renderAll() {
   renderOverview(reportModel);
   renderTimeline(els.overviewTimeline, reportModel.timeline);
   renderTimeline(els.liveTimeline, reportModel.timeline);
-  renderTagsSummary(visibleEvents);
+  renderTagsSummary(tagSummaryEvents);
   renderExpectations();
   renderChecklist(reportModel.checklist);
   renderIssues(reportModel);
@@ -275,6 +326,18 @@ function renderSession(reportModel) {
     : "Open a target site and start a controlled audit window.";
 }
 
+function formatReadinessSummaryScore(readiness = {}) {
+  return readiness.score === null || readiness.score === undefined
+    ? "N/A"
+    : `${readiness.score}%`;
+}
+
+function renderReadinessSummaryTile(valueElement, labelElement, readiness) {
+  if (!valueElement || !labelElement) return;
+  valueElement.textContent = formatReadinessSummaryScore(readiness);
+  labelElement.textContent = readiness?.label || "Not configured";
+}
+
 function renderOverview(reportModel) {
   const passCount = reportModel.checklist.filter((item) => item.status === "valid").length;
   const health = reportModel.health;
@@ -286,6 +349,16 @@ function renderOverview(reportModel) {
   els.summaryEvents.textContent = String(reportModel.summary.total);
   els.summaryPass.textContent = `${passCount} / ${reportModel.checklist.length}`;
   els.summaryIssues.textContent = String(reportModel.issues.length);
+  renderReadinessSummaryTile(
+    els.summaryCapi,
+    els.summaryCapiLabel,
+    reportModel.browserCapiReadiness,
+  );
+  renderReadinessSummaryTile(
+    els.summaryConsent,
+    els.summaryConsentLabel,
+    reportModel.consentModeReadiness,
+  );
   els.summaryRedactions.textContent = String(reportModel.summary.redactions);
 
   const steps = [
@@ -359,8 +432,17 @@ function renderTimeline(container, timeline) {
 function renderTagsSummary(events) {
   if (!els.tagsSummaryContainer || !els.tagsSummaryList) return;
   els.tagsSummaryList.innerHTML = "";
+  const activeTag = normalizeTagFilter(state.selectedTagFilter);
 
-  if (state.platformFilter === "Diagnostics" || events.length === 0) {
+  if (els.activeTagFilter && els.clearTagFilterBtn) {
+    els.activeTagFilter.hidden = !activeTag;
+    els.activeTagFilter.textContent = activeTag
+      ? `${activeTag.platform} ${activeTag.pixelId}`
+      : "";
+    els.clearTagFilterBtn.hidden = !activeTag;
+  }
+
+  if (state.platformFilter === "Diagnostics" || (!activeTag && events.length === 0)) {
     els.tagsSummaryContainer.style.display = "none";
     return;
   }
@@ -381,19 +463,20 @@ function renderTagsSummary(events) {
 
   tagsMap.forEach((info) => {
     const meta = getPlatformMeta(info.platform);
+    const tagFilter = { platform: info.platform, pixelId: info.pixelId };
+    const active = isActiveTagFilter(tagFilter);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "tag-card";
+    button.className = `tag-card${active ? " active" : ""}`;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
     button.innerHTML = `
       ${meta.icon ? `<img src="${escapeHtml(meta.icon)}" width="18" height="18" aria-hidden="true" />` : ""}
       <span>${escapeHtml(info.platform)}</span>
       <span class="caption">${escapeHtml(info.pixelId)} (${info.count})</span>
+      ${active ? `<span class="tag-clear-indicator" aria-hidden="true">x</span>` : ""}
     `;
     button.addEventListener("click", () => {
-      state.searchQuery = info.pixelId;
-      els.searchInput.value = info.pixelId;
-      scheduleDraftSave();
-      renderAll();
+      setTagFilter(tagFilter);
     });
     els.tagsSummaryList.appendChild(button);
   });
@@ -888,6 +971,9 @@ function buildCurrentReportModel({ filtered = false } = {}) {
           platform: state.platformFilter,
           status: state.statusFilter,
           search: state.searchQuery,
+          tag: state.selectedTagFilter
+            ? `${state.selectedTagFilter.platform} ${state.selectedTagFilter.pixelId}`
+            : "",
           tab: state.selectedTabId,
         }
       : null,
@@ -940,6 +1026,7 @@ function scheduleDraftSave() {
         statusFilter: state.statusFilter,
         selectedTabId: state.selectedTabId,
         isSessionView: state.isSessionView,
+        selectedTagFilter: state.selectedTagFilter,
       },
       expectedPixels: state.expectedPixels,
       expectedEvents: state.expectedEvents,
@@ -1065,6 +1152,9 @@ els.searchInput.addEventListener("input", (event) => {
 
 els.platformFilter.addEventListener("change", (event) => {
   state.platformFilter = event.target.value;
+  if (!platformFilterAllowsTag(state.platformFilter, state.selectedTagFilter)) {
+    state.selectedTagFilter = null;
+  }
   scheduleDraftSave();
   renderAll();
 });
@@ -1073,6 +1163,10 @@ els.statusFilter.addEventListener("change", (event) => {
   state.statusFilter = event.target.value;
   scheduleDraftSave();
   renderAll();
+});
+
+els.clearTagFilterBtn?.addEventListener("click", () => {
+  clearTagFilter();
 });
 
 els.tabSelector.addEventListener("change", (event) => {

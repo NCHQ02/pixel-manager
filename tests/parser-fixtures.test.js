@@ -244,6 +244,52 @@ test("parses GA4 collect fixture", () => {
   assert.equal(parsed[0].eventData["ep.currency"], "USD");
 });
 
+test("parses analytics.google.com GA4 collect endpoint", () => {
+  const parsed = parseGoogleRequest(
+    new URL(
+      "https://analytics.google.com/g/collect?v=2&tid=G-TEST123&cid=555&en=page_view&dl=https%3A%2F%2Fshop.test%2F",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].platform, "GA4");
+  assert.equal(parsed[0].eventName, "page_view");
+  assert.equal(parsed[0].pixelId, "G-TEST123");
+});
+
+test("parses DoubleClick-routed GA4 collect endpoint", () => {
+  const parsed = parseGoogleRequest(
+    new URL(
+      "https://stats.g.doubleclick.net/g/collect?v=2&tid=G-TEST123&cid=555&en=click&dl=https%3A%2F%2Fshop.test%2F",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].platform, "GA4");
+  assert.equal(parsed[0].eventName, "click");
+  assert.equal(parsed[0].pixelId, "G-TEST123");
+});
+
+test("persists GA4 network events captured from analytics.google.com", async () => {
+  const { engine, repository } = createDataLayerHarness();
+
+  await engine.handleNetworkRequest({
+    tabId: 1,
+    method: "GET",
+    url: "https://analytics.google.com/g/collect?v=2&tid=G-TEST123&cid=555&en=scroll&dl=https%3A%2F%2Fshop.test%2F",
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/",
+  });
+
+  const events = await repository.getEventsByTab("1");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].platform, "GA4");
+  assert.equal(events[0].eventName, "scroll");
+  assert.equal(events[0].source, "network");
+});
+
 test("parses Google Ads conversion fixture", () => {
   const parsed = parseGoogleRequest(
     new URL(

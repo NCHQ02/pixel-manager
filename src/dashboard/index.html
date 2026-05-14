@@ -146,6 +146,16 @@
               <strong id="summary-issues">0</strong>
             </div>
             <div class="summary-tile">
+              <span class="caption">Browser CAPI</span>
+              <strong id="summary-capi">N/A</strong>
+              <span id="summary-capi-label" class="caption">Not configured</span>
+            </div>
+            <div class="summary-tile">
+              <span class="caption">Consent Mode</span>
+              <strong id="summary-consent">N/A</strong>
+              <span id="summary-consent-label" class="caption">Not configured</span>
+            </div>
+            <div class="summary-tile">
               <span class="caption">Redactions</span>
               <strong id="summary-redactions">0</strong>
             </div>
@@ -205,7 +215,29 @@
           >
             <div class="section-heading-row">
               <p class="eyebrow">Detected Tags</p>
-              <span class="caption">Click a tag to isolate events</span>
+              <div class="section-actions tag-filter-actions">
+                <span id="active-tag-filter" class="caption" hidden></span>
+                <button
+                  id="clear-tag-filter-btn"
+                  class="icon-button tag-filter-clear"
+                  aria-label="Clear tag filter"
+                  title="Clear tag filter"
+                  type="button"
+                  hidden
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div id="tags-summary-list" class="tags-summary-list"></div>
           </section>

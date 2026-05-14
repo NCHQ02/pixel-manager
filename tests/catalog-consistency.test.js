@@ -19,6 +19,7 @@ import {
   buildProfessionalReportHtml,
   buildReportModel,
 } from "../src/dashboard/js/audit.js";
+import { selectEvents } from "../src/dashboard/js/state/selectors.js";
 
 test("tracking catalog is the shared source of truth for platform coverage", () => {
   const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
@@ -53,6 +54,56 @@ test("parser harness validates normalized ParsedSignal fields", () => {
   assert.equal(signals[0].sourceParser, "meta");
   assert.equal(signals[0].parserSchemaVersion, PARSER_SCHEMA_VERSION);
   assert.deepEqual(signals[0].diagnostics.validationIssues, []);
+});
+
+test("tag isolation filters independently from the search query", () => {
+  const events = [
+    {
+      id: "ga4",
+      platform: "GA4",
+      pixelId: "G-TEST123",
+      eventName: "page_view",
+      timestamp: 2,
+      isDiagnostic: false,
+      status: "valid",
+      source: "network",
+      url: "https://shop.test/",
+    },
+    {
+      id: "meta",
+      platform: "Meta",
+      pixelId: "123456",
+      eventName: "PageView",
+      timestamp: 1,
+      isDiagnostic: false,
+      status: "valid",
+      source: "network",
+      url: "https://shop.test/",
+    },
+  ];
+  const store = {
+    events: { "1": events },
+    getAllEvents: () => events,
+  };
+  const dashboardState = {
+    selectedTabId: "all",
+    platformFilter: "All",
+    statusFilter: "All",
+    searchQuery: "",
+    selectedTagFilter: { platform: "GA4", pixelId: "G-TEST123" },
+  };
+
+  assert.deepEqual(
+    selectEvents(store, dashboardState).map((event) => event.id),
+    ["ga4"],
+  );
+  assert.deepEqual(
+    selectEvents(store, dashboardState, { applyTag: false }).map(
+      (event) => event.id,
+    ),
+    ["ga4", "meta"],
+  );
+  assert.equal(dashboardState.searchQuery, "");
 });
 
 test("report model labels Hybrid Evidence and external account gap", () => {

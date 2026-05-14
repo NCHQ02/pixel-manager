@@ -16,6 +16,7 @@ export function selectEvents(store, dashboardState, options = {}) {
     applyPlatform = true,
     applyStatus = true,
     applySearch = true,
+    applyTag = true,
     includeDiagnostics = false,
   } = options;
   let events =
@@ -58,6 +59,15 @@ export function selectEvents(store, dashboardState, options = {}) {
       [event.eventName, event.pixelId, event.platform, event.url, event.source]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query)),
+    );
+  }
+
+  if (applyTag && dashboardState.selectedTagFilter?.pixelId) {
+    const { platform, pixelId } = dashboardState.selectedTagFilter;
+    events = events.filter(
+      (event) =>
+        event.platform === platform &&
+        String(event.pixelId || "Unknown") === pixelId,
     );
   }
 

@@ -431,7 +431,7 @@ button {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--spacing-sm);
   margin: var(--spacing-lg) 0;
 }
@@ -693,6 +693,38 @@ button.timeline-step {
   background: white;
   padding: 8px 12px;
   cursor: pointer;
+}
+
+.tag-card:hover,
+.tag-card.active {
+  border-color: var(--colors-ink);
+}
+
+.tag-card.active {
+  background: var(--colors-ink);
+  color: white;
+}
+
+.tag-card.active .caption {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.tag-clear-indicator {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.tag-filter-actions {
+  min-height: 32px;
+}
+
+.tag-filter-clear {
+  width: 32px;
+  height: 32px;
 }
 
 .setup-panel {

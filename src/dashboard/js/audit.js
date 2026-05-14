@@ -45,6 +45,42 @@ export const ISSUE_CATEGORY_LABELS = Object.freeze({
   source_of_truth: "Source of Truth",
 });
 
+const BROWSER_CAPI_PLATFORMS = new Set(["Meta", "TikTok"]);
+const BROWSER_CAPI_EVENT_KEYS = new Set([
+  "viewcontent",
+  "addtocart",
+  "lead",
+  "purchase",
+  "completepayment",
+  "placeanorder",
+  "initiatecheckout",
+  "begincheckout",
+  "begin_checkout",
+  "checkout",
+]);
+
+const BROWSER_CAPI_COMPONENT_WEIGHTS = Object.freeze({
+  observed: 25,
+  pixel: 15,
+  dedupeId: 35,
+  duplicates: 15,
+  params: 10,
+});
+
+const GOOGLE_PLATFORMS = new Set(["GA4", "Google Ads", "Floodlight"]);
+const CONSENT_MODE_REQUIRED_TYPES = Object.freeze([
+  "ad_storage",
+  "ad_user_data",
+  "ad_personalization",
+]);
+const CONSENT_MODE_COMPONENT_WEIGHTS = Object.freeze({
+  defaultCommand: 25,
+  updateCommand: 20,
+  v2Fields: 25,
+  order: 20,
+  hitSignals: 10,
+});
+
 const REPORT_BRAND_LOGO_SRC =
   "data:image/png;base64,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";
 
@@ -286,6 +322,13 @@ export function buildIssues(
       expectedPixels,
     }),
   );
+  issues.push(
+    ...buildConsentModeReadiness(
+      events,
+      normalizedExpectedEvents,
+      expectedPixels,
+    ).findings,
+  );
   issues.push(...buildSourceOfTruthIssues());
 
   return dedupeIssues(issues).sort((a, b) => b.timestamp - a.timestamp);
@@ -336,6 +379,179 @@ export function buildHealthScore(
       warnings,
       redactions,
     },
+  };
+}
+
+export function buildBrowserCapiReadiness(
+  events,
+  expectedEvents = DEFAULT_EXPECTED_EVENTS,
+  expectedPixels = {},
+) {
+  const safeEvents = Array.isArray(events) ? events : [];
+  const scopedExpected = normalizeExpectedEvents(expectedEvents).filter(
+    isBrowserCapiExpectedEvent,
+  );
+
+  if (scopedExpected.length === 0) {
+    return {
+      score: null,
+      label: "Not configured",
+      tone: "diagnostic",
+      items: [],
+      findings: [],
+      readyCount: 0,
+      needsReviewCount: 0,
+    };
+  }
+
+  const items = scopedExpected.map((expected) =>
+    buildBrowserCapiReadinessItem(safeEvents, expected, expectedPixels),
+  );
+  const findings = dedupeReadinessFindings(
+    items.flatMap((item) => item.findings),
+  );
+  const score = clamp(
+    items.reduce((total, item) => total + item.score, 0) / items.length,
+  );
+  const verdict = browserCapiVerdict(score, findings.length > 0);
+  const readyCount = items.filter((item) => item.label === "Ready").length;
+
+  return {
+    score,
+    label: verdict.label,
+    tone: verdict.tone,
+    items,
+    findings,
+    readyCount,
+    needsReviewCount: items.length - readyCount,
+  };
+}
+
+export function buildConsentModeReadiness(
+  events,
+  expectedEvents = DEFAULT_EXPECTED_EVENTS,
+  expectedPixels = {},
+) {
+  const safeEvents = Array.isArray(events) ? events : [];
+  const expectedGoogle = hasExpectedGoogleCoverage(expectedEvents, expectedPixels);
+  const observedGoogle = hasObservedGoogleCoverage(safeEvents);
+
+  if (!expectedGoogle && !observedGoogle) {
+    return {
+      score: null,
+      label: "Not configured",
+      tone: "diagnostic",
+      components: {},
+      findings: [],
+      timeline: [],
+      requiredTypes: CONSENT_MODE_REQUIRED_TYPES.map((type) => ({
+        type,
+        observed: false,
+      })),
+      defaultCommand: null,
+      updateCommand: null,
+      readyCount: 0,
+      needsReviewCount: 0,
+    };
+  }
+
+  const evidence = buildConsentModeEvidence(safeEvents);
+  const findings = [];
+  const components = {
+    defaultCommand: false,
+    updateCommand: false,
+    v2Fields: false,
+    order: false,
+    hitSignals: false,
+  };
+
+  if (evidence.defaultCommand) {
+    components.defaultCommand = true;
+  } else {
+    findings.push(consentModeFinding({
+      severity: "error",
+      component: "defaultCommand",
+      message: "Consent Mode default command was not observed.",
+      evidence: "No gtag/dataLayer consent default command appeared in local browser evidence.",
+      suggestion: "Set default consent state before Google config or event commands fire.",
+    }));
+  }
+
+  if (evidence.updateCommand) {
+    components.updateCommand = true;
+  } else {
+    findings.push(consentModeFinding({
+      severity: "warning",
+      component: "updateCommand",
+      message: "Consent Mode update command was not observed.",
+      evidence: "No gtag/dataLayer consent update command appeared after the default state.",
+      suggestion: "Have the CMP send a consent update after the user makes a consent choice.",
+    }));
+  }
+
+  const missingTypes = evidence.requiredTypes
+    .filter((item) => !item.observed)
+    .map((item) => item.type);
+  if (missingTypes.length === 0) {
+    components.v2Fields = true;
+  } else {
+    findings.push(consentModeFinding({
+      severity: "warning",
+      component: "v2Fields",
+      message: "Consent Mode v2 fields are incomplete.",
+      evidence: `Missing consent type(s): ${missingTypes.join(", ")}.`,
+      suggestion:
+        "Include ad_storage, ad_user_data, and ad_personalization in Consent Mode commands.",
+    }));
+  }
+
+  if (evidence.defaultBeforeMeasurement) {
+    components.order = true;
+  } else {
+    findings.push(consentModeFinding({
+      severity: "error",
+      component: "order",
+      message: "Consent default was not observed before Google measurement commands.",
+      evidence: evidence.orderEvidence,
+      suggestion:
+        "Move the consent default command above Google tag config/event calls and before GTM triggers measurement tags.",
+    }));
+  }
+
+  if (evidence.googleHitSignals) {
+    components.hitSignals = true;
+  } else {
+    findings.push(consentModeFinding({
+      severity: "info",
+      component: "hitSignals",
+      message: "Google hits did not expose local consent signal parameters.",
+      evidence: "No gcs or gcd parameter was observed on captured GA4, Google Ads, or Floodlight hits.",
+      suggestion:
+        "Confirm Consent Mode is active in browser hits and use account-side diagnostics when local request parameters are unavailable.",
+    }));
+  }
+
+  const score = clamp(
+    Object.entries(components).reduce(
+      (total, [component, passed]) =>
+        total + (passed ? CONSENT_MODE_COMPONENT_WEIGHTS[component] : 0),
+      0,
+    ),
+  );
+  const verdict = consentModeVerdict(score, findings.length > 0);
+
+  return {
+    score,
+    label: verdict.label,
+    tone: verdict.tone,
+    components,
+    findings: dedupeReadinessFindings(findings),
+    timeline: evidence.timeline,
+    requiredTypes: evidence.requiredTypes,
+    defaultCommand: evidence.defaultCommand,
+    updateCommand: evidence.updateCommand,
+    readyCount: Object.values(components).filter(Boolean).length,
+    needsReviewCount: Object.values(components).filter((passed) => !passed).length,
   };
 }
 
@@ -429,6 +645,497 @@ function isConversionLike(event = {}) {
     "begin_checkout",
     "floodlight",
   ].some((candidate) => normalized.includes(candidate));
+}
+
+function isBrowserCapiExpectedEvent(expected = {}) {
+  if (!BROWSER_CAPI_PLATFORMS.has(expected.platform)) return false;
+  const normalized = normalizeEventName(
+    canonicalEventName(expected.platform, expected.eventName),
+  );
+  return BROWSER_CAPI_EVENT_KEYS.has(normalized);
+}
+
+function buildBrowserCapiReadinessItem(events, expected, expectedPixels = {}) {
+  const matches = events
+    .filter(
+      (event) =>
+        eventMatchesExpected(event, expected.platform, expected.eventName) &&
+        event.source !== "scanner" &&
+        !event.isDiagnostic,
+    )
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  const event = matches[0] || null;
+  const findings = [];
+  const components = {
+    observed: false,
+    pixel: false,
+    dedupeId: false,
+    duplicates: false,
+    params: false,
+  };
+
+  if (!event) {
+    findings.push(browserCapiFinding({
+      severity: "error",
+      category: "installation",
+      expected,
+      component: "observed",
+      message: "Expected browser CAPI funnel event was not observed locally.",
+      evidence: `${expected.platform} ${expected.eventName} did not appear in the audited browser evidence.`,
+      suggestion: `Trigger the ${expected.eventName} step again and confirm the ${expected.platform} browser pixel fires.`,
+    }));
+    return buildBrowserCapiItemResult(expected, null, matches, components, findings);
+  }
+
+  components.observed = true;
+
+  const expectedPixel = expectedPixels?.[expected.platform];
+  const parsedPixel = !!event.pixelId && event.pixelId !== "Unknown";
+  if (parsedPixel && (!expectedPixel || event.pixelId === expectedPixel)) {
+    components.pixel = true;
+  } else {
+    findings.push(browserCapiFinding({
+      severity: expectedPixel ? "warning" : "info",
+      category: expectedPixel ? "installation" : "parser_confidence",
+      expected,
+      event,
+      component: "pixel",
+      message: expectedPixel
+        ? "Browser CAPI event pixel ID does not match the expected pixel."
+        : "Browser CAPI event pixel ID could not be confidently parsed.",
+      evidence: expectedPixel
+        ? `Expected ${expectedPixel}, observed ${event.pixelId || "Unknown"}.`
+        : `Observed pixel ID ${event.pixelId || "Unknown"}.`,
+      suggestion: expectedPixel
+        ? "Compare the expected pixel ID with the active browser pixel configuration."
+        : "Open the raw payload and confirm the pixel ID parser for this endpoint.",
+    }));
+  }
+
+  if (hasBrowserCapiDedupeId(event)) {
+    components.dedupeId = true;
+  } else {
+    findings.push(browserCapiFinding({
+      severity: "warning",
+      category: "deduplication",
+      expected,
+      event,
+      component: "dedupeId",
+      message: `${expected.platform} ${expected.eventName} is missing a browser/server dedupe ID.`,
+      evidence:
+        expected.platform === "Meta"
+          ? "No eventData.event_id or eventData.eid value was observed on the matched browser event."
+          : "No eventData.event_id value was observed on the matched browser event.",
+      suggestion: "Send a stable event_id on the browser event so it can merge with server-side CAPI or Events API delivery.",
+    }));
+  }
+
+  const duplicateEvents = matches.filter(hasDuplicateSignal);
+  if (duplicateEvents.length === 0) {
+    components.duplicates = true;
+  } else {
+    const duplicateTotal = duplicateEvents.reduce(
+      (total, item) => total + Math.max(1, item.duplicateCount || 0),
+      0,
+    );
+    findings.push(browserCapiFinding({
+      severity: "warning",
+      category: "duplicate_firing",
+      expected,
+      event: duplicateEvents[0],
+      component: "duplicates",
+      message: "Duplicate browser firing was detected for this CAPI readiness event.",
+      evidence: `${duplicateTotal} duplicate signal(s) were observed across ${matches.length} matched event(s).`,
+      suggestion: "Check duplicate pixel installs, GTM triggers, and theme or app overlap before enabling server-side duplication.",
+    }));
+  }
+
+  const paramFinding = buildBrowserCapiParamFinding(event, expected, expectedPixels);
+  if (paramFinding) {
+    findings.push(paramFinding);
+  } else {
+    components.params = true;
+  }
+
+  return buildBrowserCapiItemResult(expected, event, matches, components, findings);
+}
+
+function buildBrowserCapiItemResult(
+  expected,
+  event,
+  matches,
+  components,
+  findings,
+) {
+  const score = Object.entries(components).reduce(
+    (total, [component, passed]) =>
+      total + (passed ? BROWSER_CAPI_COMPONENT_WEIGHTS[component] : 0),
+    0,
+  );
+  const verdict = browserCapiVerdict(score, findings.length > 0);
+  return {
+    platform: expected.platform,
+    eventName: expected.eventName,
+    score,
+    label: verdict.label,
+    tone: verdict.tone,
+    components,
+    findings,
+    count: matches.length,
+    latestEvent: event,
+    eventId: event?.id || null,
+    pixelId: event?.pixelId || "",
+  };
+}
+
+function buildBrowserCapiParamFinding(event, expected, expectedPixels = {}) {
+  const rule = findRule(expected.platform, expected.eventName);
+  const requiredIssues = collectRuleIssues(event, rule, expectedPixels).filter(
+    (issue) => issue.startsWith("Missing required parameter:"),
+  );
+  if (!isPurchaseStyleEvent(expected.eventName)) {
+    if (requiredIssues.length === 0) return null;
+    return browserCapiFinding({
+      severity: "error",
+      category: "required_params",
+      expected,
+      event,
+      component: "params",
+      message: "Browser CAPI readiness event is missing required browser parameters.",
+      evidence: requiredIssues.join(" "),
+      suggestion: "Map the required browser pixel parameters before using this event for server-side CAPI pairing.",
+    });
+  }
+
+  const revenue = validatePurchaseRevenue(event);
+  if (revenue.valid) return null;
+  return browserCapiFinding({
+    severity: "warning",
+    category: "required_params",
+    expected,
+    event,
+    component: "params",
+    message: "Purchase-style browser CAPI event is missing valid value or currency.",
+    evidence: revenue.evidence,
+    suggestion: "Map numeric value and 3-letter currency on the browser event so browser and server purchase records can be reconciled.",
+  });
+}
+
+function browserCapiFinding({
+  severity,
+  category,
+  expected,
+  event = null,
+  component,
+  message,
+  evidence,
+  suggestion,
+}) {
+  return {
+    severity,
+    category,
+    platform: expected.platform,
+    eventName: expected.eventName,
+    pixelId: event?.pixelId || "",
+    message,
+    evidence,
+    suggestion,
+    source: event?.source || "audit",
+    evidenceSource: event ? getEvidenceSourceForEvent(event) : EVIDENCE_SOURCES.LOCAL_NETWORK,
+    timestamp: event?.timestamp || Date.now(),
+    eventId: event?.id || null,
+    component,
+  };
+}
+
+function dedupeReadinessFindings(findings = []) {
+  const seen = new Set();
+  return findings.filter((finding) => {
+    const key = [
+      finding.category,
+      finding.platform,
+      finding.eventName,
+      finding.component,
+      finding.eventId || "",
+      finding.message,
+    ].join("::");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function browserCapiVerdict(score, hasFindings = false) {
+  if (score === null) return { label: "Not configured", tone: "diagnostic" };
+  if (score >= 90 && !hasFindings) return { label: "Ready", tone: "healthy" };
+  if (score >= 70) return { label: "Needs Review", tone: "review" };
+  if (score >= 50) return { label: "At Risk", tone: "risk" };
+  return { label: "Blocked", tone: "blocked" };
+}
+
+function hasBrowserCapiDedupeId(event = {}) {
+  if (event.platform === "Meta") {
+    return hasPath(event, "eventData.event_id|eventData.eid");
+  }
+  if (event.platform === "TikTok") {
+    return hasPath(event, "eventData.event_id");
+  }
+  return false;
+}
+
+function hasDuplicateSignal(event = {}) {
+  return (event.duplicateCount || 0) > 0 || !!event.eventData?._duplicateWarning;
+}
+
+function isPurchaseStyleEvent(eventName = "") {
+  const normalized = normalizeEventName(eventName);
+  return ["purchase", "completepayment", "placeanorder"].some((candidate) =>
+    normalized.includes(candidate),
+  );
+}
+
+function validatePurchaseRevenue(event = {}) {
+  const data = event.eventData || {};
+  const value =
+    event.platform === "Meta"
+      ? data.cd?.value
+      : event.platform === "TikTok"
+        ? data.properties?.value
+        : undefined;
+  const currency =
+    event.platform === "Meta"
+      ? data.cd?.currency
+      : event.platform === "TikTok"
+        ? data.properties?.currency
+        : undefined;
+  const validValue = value !== undefined && value !== "" && !Number.isNaN(Number.parseFloat(value));
+  const validCurrency = /^[A-Z]{3}$/i.test(String(currency || "").trim());
+
+  return {
+    valid: validValue && validCurrency,
+    evidence: `value ${validValue ? "observed" : "missing or invalid"}; currency ${validCurrency ? "observed" : "missing or invalid"}.`,
+  };
+}
+
+function hasExpectedGoogleCoverage(expectedEvents = [], expectedPixels = {}) {
+  const normalized = normalizeExpectedEvents(expectedEvents);
+  return (
+    normalized.some((event) => GOOGLE_PLATFORMS.has(event.platform)) ||
+    Object.keys(expectedPixels || {}).some((platform) =>
+      GOOGLE_PLATFORMS.has(canonicalPlatform(platform)),
+    )
+  );
+}
+
+function hasObservedGoogleCoverage(events = []) {
+  const scannerEvent = latestScannerEvent(events);
+  return (
+    events.some(
+      (event) =>
+        GOOGLE_PLATFORMS.has(event.platform) &&
+        event.source !== "scanner" &&
+        !event.isDiagnostic,
+    ) ||
+    !!scannerEvent?.eventData?.platforms?.Google
+  );
+}
+
+function buildConsentModeEvidence(events = []) {
+  const commands = extractConsentModeCommands(events);
+  const consentCommands = commands.filter((command) => command.type === "consent");
+  const defaultCommand = firstCommandByMode(consentCommands, "default");
+  const updateCommand = firstCommandByMode(consentCommands, "update");
+  const measurementCommand = firstMeasurementCommand(commands);
+  const googleHit = events
+    .filter((event) => GOOGLE_PLATFORMS.has(event.platform) && event.source !== "scanner")
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))[0] || null;
+  const requiredTypes = CONSENT_MODE_REQUIRED_TYPES.map((type) => ({
+    type,
+    observed: consentCommands.some((command) =>
+      Object.prototype.hasOwnProperty.call(command.state || {}, type),
+    ),
+  }));
+
+  const defaultBeforeCommand =
+    !!defaultCommand &&
+    (!measurementCommand ||
+      compareConsentCommandOrder(defaultCommand, measurementCommand) <= 0);
+  const defaultBeforeHit =
+    !!defaultCommand &&
+    (!googleHit ||
+      !defaultCommand.timestamp ||
+      !googleHit.timestamp ||
+      defaultCommand.timestamp <= googleHit.timestamp);
+  const defaultBeforeMeasurement = defaultBeforeCommand && defaultBeforeHit;
+  const googleHitSignals = events.some(
+    (event) =>
+      GOOGLE_PLATFORMS.has(event.platform) &&
+      event.source !== "scanner" &&
+      (hasPath(event, "eventData.gcs") || hasPath(event, "eventData.gcd")),
+  );
+
+  return {
+    commands,
+    consentCommands,
+    defaultCommand,
+    updateCommand,
+    measurementCommand,
+    googleHit,
+    requiredTypes,
+    defaultBeforeMeasurement,
+    googleHitSignals,
+    orderEvidence: formatConsentOrderEvidence(defaultCommand, measurementCommand, googleHit),
+    timeline: commands
+      .filter((command) =>
+        ["consent", "config", "event", "js"].includes(command.type),
+      )
+      .slice(0, 20),
+  };
+}
+
+function extractConsentModeCommands(events = []) {
+  const scannerEvent = latestScannerEvent(events);
+  const scannerCommands = (scannerEvent?.eventData?.dataLayerCommands || []).map(
+    (command) => normalizeConsentModeCommand(command, {
+      source: "scanner",
+      timestamp: scannerEvent.timestamp,
+    }),
+  );
+  const dataLayerCommands = events
+    .filter((event) => event.platform === "DataLayer" && event.source !== "scanner")
+    .map((event) =>
+      normalizeConsentModeCommand(event.eventData, {
+        source: event.source || "datalayer",
+        timestamp: event.timestamp,
+        eventId: event.id,
+      }),
+    );
+
+  return [...scannerCommands, ...dataLayerCommands]
+    .filter(Boolean)
+    .sort((a, b) => {
+      const indexA = Number.isFinite(a.index) ? a.index : Number.MAX_SAFE_INTEGER;
+      const indexB = Number.isFinite(b.index) ? b.index : Number.MAX_SAFE_INTEGER;
+      return (
+        (a.timestamp || 0) - (b.timestamp || 0) ||
+        indexA - indexB ||
+        a.type.localeCompare(b.type)
+      );
+    });
+}
+
+function normalizeConsentModeCommand(rawCommand, meta = {}) {
+  if (!rawCommand) return null;
+
+  if (Array.isArray(rawCommand)) {
+    const type = typeof rawCommand[0] === "string" ? rawCommand[0] : "array";
+    return {
+      index: Number.isFinite(meta.index) ? meta.index : null,
+      type,
+      name: typeof rawCommand[1] === "string" ? rawCommand[1] : "",
+      mode: type === "consent" && typeof rawCommand[1] === "string" ? rawCommand[1] : "",
+      state:
+        type === "consent" && rawCommand[2] && typeof rawCommand[2] === "object"
+          ? rawCommand[2]
+          : {},
+      source: meta.source || "datalayer",
+      timestamp: meta.timestamp || null,
+      eventId: meta.eventId || null,
+    };
+  }
+
+  if (rawCommand && typeof rawCommand === "object") {
+    return {
+      index: Number.isFinite(rawCommand.index) ? rawCommand.index : null,
+      type: String(rawCommand.type || "").toLowerCase(),
+      name: String(rawCommand.name || ""),
+      mode: String(rawCommand.mode || rawCommand.name || "").toLowerCase(),
+      state:
+        rawCommand.state && typeof rawCommand.state === "object"
+          ? rawCommand.state
+          : {},
+      source: meta.source || rawCommand.source || "scanner",
+      timestamp: meta.timestamp || rawCommand.timestamp || null,
+      eventId: meta.eventId || rawCommand.eventId || null,
+    };
+  }
+
+  return null;
+}
+
+function firstCommandByMode(commands, mode) {
+  return commands.find(
+    (command) =>
+      command.type === "consent" &&
+      String(command.mode || command.name || "").toLowerCase() === mode,
+  ) || null;
+}
+
+function firstMeasurementCommand(commands) {
+  return commands.find((command) =>
+    ["config", "event"].includes(command.type),
+  ) || null;
+}
+
+function compareConsentCommandOrder(left, right) {
+  if (
+    Number.isFinite(left.index) &&
+    Number.isFinite(right.index) &&
+    left.source === right.source
+  ) {
+    return left.index - right.index;
+  }
+  if (left.timestamp && right.timestamp) return left.timestamp - right.timestamp;
+  return 0;
+}
+
+function formatConsentOrderEvidence(defaultCommand, measurementCommand, googleHit) {
+  if (!defaultCommand) {
+    return "No consent default command was observed before Google measurement.";
+  }
+  if (measurementCommand) {
+    return `default command index ${formatCommandIndex(defaultCommand)}, first measurement command ${measurementCommand.type} index ${formatCommandIndex(measurementCommand)}.`;
+  }
+  if (googleHit) {
+    return `default command timestamp ${defaultCommand.timestamp || "unknown"}, first Google hit timestamp ${googleHit.timestamp || "unknown"}.`;
+  }
+  return "Consent default command was observed; no later Google measurement command was available for local order comparison.";
+}
+
+function formatCommandIndex(command) {
+  return Number.isFinite(command?.index) ? command.index : "unknown";
+}
+
+function consentModeFinding({
+  severity,
+  component,
+  message,
+  evidence,
+  suggestion,
+}) {
+  return {
+    severity,
+    category: "consent",
+    platform: "Google",
+    eventName: "Consent Mode",
+    pixelId: "",
+    message,
+    evidence,
+    suggestion,
+    source: "audit",
+    evidenceSource: EVIDENCE_SOURCES.LOCAL_DATALAYER,
+    timestamp: Date.now(),
+    eventId: null,
+    component,
+  };
+}
+
+function consentModeVerdict(score, hasFindings = false) {
+  if (score === null) return { label: "Not configured", tone: "diagnostic" };
+  if (score >= 90 && !hasFindings) return { label: "Ready", tone: "healthy" };
+  if (score >= 70) return { label: "Needs Review", tone: "review" };
+  if (score >= 50) return { label: "At Risk", tone: "risk" };
+  return { label: "Blocked", tone: "blocked" };
 }
 
 function buildObservedEventIssues(event) {
@@ -911,6 +1618,16 @@ export function buildReportModel({
   const issueSummary = buildIssueSummary(issues);
   const scannerSummary = buildScannerSummary(safeEvents);
   const evidenceSources = buildEvidenceSourceSummary(safeEvents);
+  const browserCapiReadiness = buildBrowserCapiReadiness(
+    safeEvents,
+    expectedEvents,
+    expectedPixels,
+  );
+  const consentModeReadiness = buildConsentModeReadiness(
+    safeEvents,
+    expectedEvents,
+    expectedPixels,
+  );
   const generatedAt = Date.now();
 
   return {
@@ -931,6 +1648,8 @@ export function buildReportModel({
     summary,
     issueSummary,
     scannerSummary,
+    browserCapiReadiness,
+    consentModeReadiness,
     evidenceSources,
     parserSchemaVersion: maxParserSchemaVersion(safeEvents),
     checklist,
@@ -1000,9 +1719,29 @@ export function buildProfessionalReportHtml(reportModel) {
     : "0";
   const googleSummary = scannerSummary.google || {};
   const cookieSummary = scannerSummary.cookies || {};
+  const consentModeReadiness =
+    model.consentModeReadiness ||
+    buildConsentModeReadiness(model.events, model.expectedEvents, model.expectedPixels);
+  const consentTypeCount = (consentModeReadiness.requiredTypes || []).filter(
+    (item) => item.observed,
+  ).length;
+  const consentTypeTotal =
+    consentModeReadiness.requiredTypes?.length || CONSENT_MODE_REQUIRED_TYPES.length;
   const dedupeIssues = model.issues.filter((issue) =>
     ["deduplication", "duplicate_firing"].includes(issue.category),
   );
+  const browserCapiReadiness =
+    model.browserCapiReadiness ||
+    buildBrowserCapiReadiness(model.events, model.expectedEvents, model.expectedPixels);
+  const browserCapiRows = dedupeReadinessFindings([
+    ...(browserCapiReadiness.findings || []),
+    ...dedupeIssues,
+  ]);
+  const browserCapiScore = readinessScoreText(browserCapiReadiness);
+  const browserCapiCovered = `${browserCapiReadiness.items?.length || 0} event(s)`;
+  const browserCapiNeedsReview =
+    browserCapiReadiness.needsReviewCount ||
+    (browserCapiReadiness.items || []).filter((item) => item.label !== "Ready").length;
   const tagHealthIssues = model.issues.filter((issue) =>
     ["installation", "consent", "google_tag_health", "parser_confidence"].includes(
       issue.category,
@@ -1443,7 +2182,13 @@ export function buildProfessionalReportHtml(reportModel) {
             <p class="eyebrow">Consent & Tag Health</p>
             <h2>Local DOM scanner evidence</h2>
           </div>
-          <span class="pill ${scannerSummary.observed ? "pill-valid" : "pill-soft"}">${scannerSummary.observed ? "scanner observed" : "scanner missing"}</span>
+          <span class="pill ${readinessPillClass(consentModeReadiness)}">${escapeHtml(consentModeReadiness.label)}</span>
+        </div>
+        <div class="summary-grid">
+          ${summaryTile("Consent Mode Score", readinessScoreText(consentModeReadiness), readinessSummaryAccent(consentModeReadiness))}
+          ${summaryTile("Default Command", consentModeReadiness.defaultCommand ? "Observed" : "Missing", consentModeReadiness.defaultCommand ? "accent-mint" : "accent-pink")}
+          ${summaryTile("Update Command", consentModeReadiness.updateCommand ? "Observed" : "Missing", consentModeReadiness.updateCommand ? "accent-mint" : "accent-cream")}
+          ${summaryTile("Strict v2 Fields", `${consentTypeCount} / ${consentTypeTotal}`, consentTypeCount === consentTypeTotal ? "accent-mint" : "accent-cream")}
         </div>
         <div class="scanner-grid">
           ${scannerTile("Detected Platforms", scannerPlatforms)}
@@ -1451,6 +2196,14 @@ export function buildProfessionalReportHtml(reportModel) {
           ${scannerTile("Google Consent", googleSummary.consentSeen ? "Observed" : "Not observed")}
           ${scannerTile("GCL Linker Cookies", cookieSummary.gclAw || cookieSummary.gclAu ? "Observed" : "Not visible")}
         </div>
+        <table style="margin-top: 16px;">
+          <thead>
+            <tr><th>Order</th><th>Command</th><th>Mode / Target</th><th>Consent State</th><th>Source</th></tr>
+          </thead>
+          <tbody>
+            ${renderConsentTimelineRows(consentModeReadiness.timeline || [])}
+          </tbody>
+        </table>
         <table style="margin-top: 16px;">
           <thead>
             <tr><th>Category</th><th>Platform</th><th>Finding</th><th>Evidence</th><th>Fix Step</th></tr>
@@ -1465,16 +2218,23 @@ export function buildProfessionalReportHtml(reportModel) {
         <div class="section-heading">
           <div>
             <p class="eyebrow">Dedupe Readiness</p>
-            <h2>Browser and server-side merge signals</h2>
+            <h2>Browser CAPI readiness</h2>
           </div>
-          <span class="pill ${dedupeIssues.length ? "pill-warning" : "pill-valid"}">${dedupeIssues.length} finding(s)</span>
+          <span class="pill ${readinessPillClass(browserCapiReadiness)}">${escapeHtml(browserCapiReadiness.label)}</span>
         </div>
+        <div class="summary-grid">
+          ${summaryTile("Browser CAPI Score", browserCapiScore, readinessSummaryAccent(browserCapiReadiness))}
+          ${summaryTile("Covered Events", browserCapiCovered, "")}
+          ${summaryTile("Ready", browserCapiReadiness.readyCount || 0, browserCapiReadiness.readyCount ? "accent-mint" : "")}
+          ${summaryTile("Needs Review", browserCapiNeedsReview, browserCapiNeedsReview ? "accent-cream" : "accent-mint")}
+        </div>
+        <p class="lead" style="font-size: 18px;">This readiness score uses local browser evidence only. It checks browser event IDs, duplicate firing, expected pixel IDs, and purchase parameters before server-side CAPI or Events API pairing.</p>
         <table>
           <thead>
             <tr><th>Category</th><th>Platform</th><th>Event</th><th>Evidence</th><th>Fix Step</th></tr>
           </thead>
           <tbody>
-            ${dedupeIssues.length ? dedupeIssues.map(renderReadinessIssueRow).join("") : `<tr><td colspan="5">No duplicate firing or browser/server deduplication gaps detected locally.</td></tr>`}
+            ${browserCapiRows.length ? browserCapiRows.map(renderReadinessIssueRow).join("") : `<tr><td colspan="5">No browser CAPI readiness gaps or duplicate firing issues detected locally.</td></tr>`}
           </tbody>
         </table>
       </section>
@@ -1743,6 +2503,26 @@ function summaryTile(label, value, accent = "") {
   return `<div class="summary-tile ${escapeHtml(accent)}"><span class="eyebrow">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
+function readinessScoreText(readiness = {}) {
+  return readiness.score === null || readiness.score === undefined
+    ? "N/A"
+    : `${readiness.score}%`;
+}
+
+function readinessSummaryAccent(readiness = {}) {
+  if (readiness.score === null || readiness.score === undefined) return "";
+  if (readiness.tone === "healthy") return "accent-mint";
+  if (readiness.tone === "review") return "accent-cream";
+  return "accent-pink";
+}
+
+function readinessPillClass(readiness = {}) {
+  if (readiness.tone === "healthy") return "pill-valid";
+  if (readiness.tone === "review") return "pill-warning";
+  if (readiness.tone === "diagnostic") return "pill-soft";
+  return "pill-error";
+}
+
 function scannerTile(label, value) {
   return `<div class="scanner-card"><span class="eyebrow">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
@@ -1809,6 +2589,28 @@ function renderReadinessIssueRow(issue) {
     <td>${escapeHtml(issue.evidence || issue.message)}</td>
     <td>${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</td>
   </tr>`;
+}
+
+function renderConsentTimelineRows(timeline = []) {
+  if (!timeline.length) {
+    return `<tr><td colspan="5">No local Consent Mode command timeline was captured.</td></tr>`;
+  }
+  return timeline
+    .map((command) => {
+      const state = Object.keys(command.state || {}).length
+        ? Object.entries(command.state)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join("; ")
+        : "None";
+      return `<tr>
+        <td>${escapeHtml(formatCommandIndex(command))}</td>
+        <td>${escapeHtml(command.type || "unknown")}</td>
+        <td>${escapeHtml(command.mode || command.name || "Not available")}</td>
+        <td>${escapeHtml(state)}</td>
+        <td>${escapeHtml(command.source || "local")}</td>
+      </tr>`;
+    })
+    .join("");
 }
 
 function renderPlatformRow(item) {

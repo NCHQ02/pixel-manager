@@ -167,6 +167,24 @@ test("memory repository avoids legacy fallback when keyed events do not match", 
   assert.equal(updated, null);
 });
 
+test("memory repository clears only stale tab events before a reload cutoff", async () => {
+  const repo = createMemoryEventRepository();
+  await repo.addEvent(makeEvent({ id: "old", tabId: "1", timestamp: 1000 }));
+  await repo.addEvent(makeEvent({ id: "recent", tabId: "1", timestamp: 5000 }));
+  await repo.addEvent(makeEvent({ id: "other-tab", tabId: "2", timestamp: 1000 }));
+
+  await repo.clearEventsForTabBefore("1", 3000);
+
+  assert.deepEqual(
+    (await repo.getEventsByTab("1")).map((event) => event.id),
+    ["recent"],
+  );
+  assert.deepEqual(
+    (await repo.getEventsByTab("2")).map((event) => event.id),
+    ["other-tab"],
+  );
+});
+
 test("memory repository clears audit runs and events together", async () => {
   const repo = createMemoryEventRepository();
   await repo.addEvent(makeEvent({ id: "evt" }));

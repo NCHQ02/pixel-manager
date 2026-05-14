@@ -326,7 +326,7 @@ export class CaptureEngine {
           url: sanitizeCapturedUrl(pageUrl),
           pixelUrl: sanitizeCapturedUrl(details.url),
           method: details.method,
-          timestamp: Date.now(),
+          timestamp: Number(details.timeStamp || Date.now()),
           status: parsed.isDiagnostic
             ? "diagnostic"
             : isWarning

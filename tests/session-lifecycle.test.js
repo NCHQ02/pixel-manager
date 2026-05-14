@@ -118,6 +118,122 @@ test("page loading clears current tab canvas before reinjection", async () => {
   );
 });
 
+test("page loading preserves very recent network hits captured before loading event", async () => {
+  const chromeApi = createMockChrome();
+  const repository = createMemoryEventRepository();
+  const manager = new AuditSessionManager({
+    chromeApi,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await manager.hydrate();
+
+  const context = await manager.enableAuditingForTab(
+    {
+      id: 7,
+      url: "https://shop.test/products",
+      status: "complete",
+    },
+    { createNewRun: true },
+  );
+  await repository.addEvent({
+    ...event,
+    id: "old-page-view",
+    timestamp: 1,
+    auditRunId: context.auditRunId,
+  });
+  await repository.addEvent({
+    ...event,
+    id: "early-ga4-page-view",
+    platform: "GA4",
+    pixelId: "G-TEST123",
+    eventName: "page_view",
+    timestamp: Date.now(),
+    auditRunId: context.auditRunId,
+  });
+
+  const cleared = await manager.handleTabLoading(7, {
+    id: 7,
+    url: "https://shop.test/products",
+    status: "loading",
+  });
+
+  const events = await repository.getEventsByTab("7");
+
+  assert.equal(cleared, true);
+  assert.deepEqual(
+    events.map((item) => item.id),
+    ["early-ga4-page-view"],
+  );
+});
+
+test("navigation start clears the current tab canvas before new GA hits", async () => {
+  const chromeApi = createMockChrome();
+  const repository = createMemoryEventRepository();
+  const manager = new AuditSessionManager({
+    chromeApi,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await manager.hydrate();
+  const context = await manager.enableAuditingForTab(
+    { id: 7, url: "https://shop.test/", status: "complete" },
+    { createNewRun: true },
+  );
+  await repository.addEvent({
+    ...event,
+    id: "previous-page-view",
+    auditRunId: context.auditRunId,
+  });
+
+  const cleared = await manager.handleNavigationStarted(
+    7,
+    "https://shop.test/",
+  );
+
+  assert.equal(cleared, true);
+  assert.deepEqual(await repository.getEventsByTab("7"), []);
+});
+
+test("tab loading after navigation start does not clear current navigation hits", async () => {
+  const chromeApi = createMockChrome();
+  const repository = createMemoryEventRepository();
+  const manager = new AuditSessionManager({
+    chromeApi,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await manager.hydrate();
+  const context = await manager.enableAuditingForTab(
+    { id: 7, url: "https://shop.test/", status: "complete" },
+    { createNewRun: true },
+  );
+
+  await manager.handleNavigationStarted(7, "https://shop.test/");
+  await repository.addEvent({
+    ...event,
+    id: "current-ga4-page-view",
+    platform: "GA4",
+    pixelId: "G-TEST123",
+    eventName: "page_view",
+    timestamp: Date.now(),
+    auditRunId: context.auditRunId,
+  });
+
+  const cleared = await manager.handleTabLoading(7, {
+    id: 7,
+    url: "https://shop.test/",
+    status: "loading",
+  });
+  const events = await repository.getEventsByTab("7");
+
+  assert.equal(cleared, false);
+  assert.deepEqual(
+    events.map((item) => item.id),
+    ["current-ga4-page-view"],
+  );
+});
+
 test("tab close removes session context but preserves audit data", async () => {
   const chromeApi = createMockChrome();
   const repository = createMemoryEventRepository();

@@ -7,6 +7,8 @@ import {
   EXPECTATION_IMPORT_TEMPLATE,
   ISSUE_CATEGORY_LABELS,
   buildChecklist,
+  buildBrowserCapiReadiness,
+  buildConsentModeReadiness,
   buildHealthScore,
   buildIssues,
   buildReportHtml,
@@ -49,6 +51,283 @@ test("builds checklist with missing expected events", () => {
 
   assert.equal(checklist[0].status, "valid");
   assert.equal(checklist[1].status, "missing");
+});
+
+test("builds ready Browser CAPI score for Meta purchase with browser event ID", () => {
+  const readiness = buildBrowserCapiReadiness(
+    [
+      {
+        id: "meta-purchase",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "Purchase",
+        eventData: { eid: "evt-1", cd: { value: "10", currency: "USD" } },
+        source: "network",
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "Meta", eventName: "Purchase" }],
+    { Meta: "123" },
+  );
+
+  assert.equal(readiness.score, 100);
+  assert.equal(readiness.label, "Ready");
+  assert.equal(readiness.tone, "healthy");
+  assert.equal(readiness.readyCount, 1);
+  assert.equal(readiness.findings.length, 0);
+});
+
+test("flags TikTok Browser CAPI readiness when event_id is missing", () => {
+  const readiness = buildBrowserCapiReadiness(
+    [
+      {
+        id: "tiktok-purchase",
+        platform: "TikTok",
+        pixelId: "C12345",
+        eventName: "Purchase",
+        eventData: { properties: { value: "12", currency: "USD" } },
+        source: "network",
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "TikTok", eventName: "CompletePayment" }],
+    { TikTok: "C12345" },
+  );
+
+  assert.equal(readiness.score, 65);
+  assert.equal(readiness.label, "At Risk");
+  assert.equal(readiness.findings[0].category, "deduplication");
+  assert.match(readiness.findings[0].evidence, /eventData\.event_id/);
+});
+
+test("blocks Browser CAPI readiness when an expected conversion is missing", () => {
+  const readiness = buildBrowserCapiReadiness(
+    [],
+    [{ platform: "Meta", eventName: "Purchase" }],
+    { Meta: "123" },
+  );
+
+  assert.equal(readiness.score, 0);
+  assert.equal(readiness.label, "Blocked");
+  assert.equal(readiness.items[0].score, 0);
+  assert.equal(readiness.findings[0].category, "installation");
+});
+
+test("deducts Browser CAPI readiness score for duplicate firing", () => {
+  const readiness = buildBrowserCapiReadiness(
+    [
+      {
+        id: "meta-purchase",
+        platform: "Meta",
+        pixelId: "123",
+        eventName: "Purchase",
+        eventData: { eid: "evt-1", cd: { value: "10", currency: "USD" } },
+        duplicateCount: 2,
+        source: "network",
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "Meta", eventName: "Purchase" }],
+    { Meta: "123" },
+  );
+
+  assert.equal(readiness.score, 85);
+  assert.equal(readiness.label, "Needs Review");
+  assert.equal(readiness.findings[0].category, "duplicate_firing");
+});
+
+test("returns not configured Browser CAPI readiness without scoped events", () => {
+  const readiness = buildBrowserCapiReadiness(
+    [],
+    [
+      { platform: "Meta", eventName: "PageView" },
+      { platform: "GA4", eventName: "purchase" },
+    ],
+  );
+
+  assert.equal(readiness.score, null);
+  assert.equal(readiness.label, "Not configured");
+  assert.equal(readiness.items.length, 0);
+});
+
+test("builds ready Consent Mode strict v2 score from local evidence", () => {
+  const readiness = buildConsentModeReadiness(
+    [
+      {
+        id: "scan-1",
+        platform: "Diagnostics",
+        pixelId: "Local Scanner",
+        eventName: "Tag Scanner Snapshot",
+        eventData: {
+          platforms: { Google: true },
+          dataLayerCommands: [
+            {
+              index: 0,
+              type: "consent",
+              name: "default",
+              mode: "default",
+              state: {
+                ad_storage: "denied",
+                ad_user_data: "denied",
+                ad_personalization: "denied",
+              },
+            },
+            {
+              index: 1,
+              type: "consent",
+              name: "update",
+              mode: "update",
+              state: {
+                ad_storage: "granted",
+                ad_user_data: "granted",
+                ad_personalization: "granted",
+              },
+            },
+            { index: 2, type: "config", name: "G-TEST123" },
+          ],
+        },
+        source: "scanner",
+        isDiagnostic: true,
+        timestamp: 1000,
+      },
+      {
+        id: "ga4-1",
+        platform: "GA4",
+        pixelId: "G-TEST123",
+        eventName: "page_view",
+        eventData: { gcs: "G111", gcd: "13l3l3l3l1" },
+        source: "network",
+        timestamp: 1100,
+      },
+    ],
+    [{ platform: "GA4", eventName: "page_view" }],
+    { GA4: "G-TEST123" },
+  );
+
+  assert.equal(readiness.score, 100);
+  assert.equal(readiness.label, "Ready");
+  assert.equal(readiness.findings.length, 0);
+  assert.equal(readiness.requiredTypes.every((item) => item.observed), true);
+});
+
+test("flags missing Consent Mode update and strict v2 fields", () => {
+  const readiness = buildConsentModeReadiness(
+    [
+      {
+        id: "scan-1",
+        platform: "Diagnostics",
+        pixelId: "Local Scanner",
+        eventName: "Tag Scanner Snapshot",
+        eventData: {
+          platforms: { Google: true },
+          dataLayerCommands: [
+            {
+              index: 0,
+              type: "consent",
+              name: "default",
+              mode: "default",
+              state: { ad_storage: "denied" },
+            },
+            { index: 1, type: "config", name: "AW-123" },
+          ],
+        },
+        source: "scanner",
+        isDiagnostic: true,
+        timestamp: 1000,
+      },
+      {
+        id: "ads-1",
+        platform: "Google Ads",
+        pixelId: "AW-123",
+        eventName: "Conversion",
+        eventData: { label: "lead_a" },
+        source: "network",
+        timestamp: 1100,
+      },
+    ],
+    [{ platform: "Google Ads", eventName: "Conversion" }],
+    { "Google Ads": "AW-123" },
+  );
+
+  assert.equal(readiness.score, 45);
+  assert.equal(readiness.label, "Blocked");
+  assert.ok(
+    readiness.findings.some((finding) => finding.component === "updateCommand"),
+  );
+  assert.ok(
+    readiness.findings.some((finding) => finding.component === "v2Fields"),
+  );
+});
+
+test("flags Consent Mode default order after Google config", () => {
+  const readiness = buildConsentModeReadiness(
+    [
+      {
+        id: "scan-1",
+        platform: "Diagnostics",
+        pixelId: "Local Scanner",
+        eventName: "Tag Scanner Snapshot",
+        eventData: {
+          platforms: { Google: true },
+          dataLayerCommands: [
+            { index: 0, type: "config", name: "G-TEST123" },
+            {
+              index: 1,
+              type: "consent",
+              name: "default",
+              mode: "default",
+              state: {
+                ad_storage: "denied",
+                ad_user_data: "denied",
+                ad_personalization: "denied",
+              },
+            },
+            {
+              index: 2,
+              type: "consent",
+              name: "update",
+              mode: "update",
+              state: {
+                ad_storage: "granted",
+                ad_user_data: "granted",
+                ad_personalization: "granted",
+              },
+            },
+          ],
+        },
+        source: "scanner",
+        isDiagnostic: true,
+        timestamp: 1000,
+      },
+      {
+        id: "ga4-1",
+        platform: "GA4",
+        pixelId: "G-TEST123",
+        eventName: "page_view",
+        eventData: { gcs: "G111" },
+        source: "network",
+        timestamp: 1100,
+      },
+    ],
+    [{ platform: "GA4", eventName: "page_view" }],
+    { GA4: "G-TEST123" },
+  );
+
+  assert.equal(readiness.score, 80);
+  assert.equal(readiness.label, "Needs Review");
+  assert.ok(readiness.findings.some((finding) => finding.component === "order"));
+});
+
+test("returns not configured Consent Mode readiness without Google scope", () => {
+  const readiness = buildConsentModeReadiness(
+    [],
+    [{ platform: "Meta", eventName: "Purchase" }],
+    { Meta: "123" },
+  );
+
+  assert.equal(readiness.score, null);
+  assert.equal(readiness.label, "Not configured");
+  assert.equal(readiness.findings.length, 0);
 });
 
 test("uses TikTok Pageview casing in expected events", () => {
@@ -301,7 +580,9 @@ test("merges DOM scanner evidence into installation, consent, and Google health 
   const html = buildProfessionalReportHtml(reportModel);
   assert.match(html, /Issue Summary/);
   assert.match(html, /Consent &amp; Tag Health|Consent & Tag Health/);
+  assert.match(html, /Consent Mode Score/);
   assert.match(html, /Dedupe Readiness/);
+  assert.match(html, /Browser CAPI readiness/);
   assert.match(html, /schema v2/);
 });
 

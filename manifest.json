@@ -12,6 +12,7 @@
     "activeTab",
     "scripting",
     "webRequest",
+    "webNavigation",
     "storage",
     "tabs"
   ],
@@ -20,6 +21,7 @@
     "*://*.tiktok.com/*",
     "*://*.byteoversea.com/*",
     "*://*.google-analytics.com/*",
+    "*://*.analytics.google.com/*",
     "*://*.google.com/*",
     "*://*.googleadservices.com/*",
     "*://*.doubleclick.net/*"

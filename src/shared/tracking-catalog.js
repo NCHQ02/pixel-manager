@@ -56,6 +56,7 @@ export const TRACKING_URL_PATTERNS = Object.freeze([
   "*://*.tiktok.com/*",
   "*://*.byteoversea.com/*",
   "*://*.google-analytics.com/*",
+  "*://*.analytics.google.com/*",
   "*://*.google.com/*",
   "*://*.googleadservices.com/*",
   "*://*.doubleclick.net/*",
@@ -205,7 +206,10 @@ export const PLATFORM_DEFINITIONS = Object.freeze({
     parser: "google",
     family: "google",
     expectedIdPattern: /^(G-[A-Z0-9]+|Unknown)$/i,
-    endpointHints: ["google-analytics.com/g/collect"],
+    endpointHints: [
+      "google-analytics.com/g/collect",
+      "analytics.google.com/g/collect",
+    ],
     diagnosticEventKeys: new Set([
       "open_container_view_sp",
       "worker_install_success",

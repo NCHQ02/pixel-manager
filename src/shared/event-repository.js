@@ -262,6 +262,21 @@ export function createIndexedDbEventRepository(idb = globalThis.indexedDB) {
     await transactionDone(tx);
   }
 
+  async function clearEventsForTabBefore(tabId, cutoffTimestamp) {
+    const cutoff = Number(cutoffTimestamp);
+    if (!Number.isFinite(cutoff)) {
+      await clearEventsForTab(tabId);
+      return;
+    }
+    const events = await getEventsByTab(tabId);
+    const stale = events.filter((event) => (event.timestamp || 0) < cutoff);
+    if (stale.length === 0) return;
+    const db = await getDb();
+    const { tx, store } = txStore(db, STORE_EVENTS, "readwrite");
+    stale.forEach((event) => store.delete(event.id));
+    await transactionDone(tx);
+  }
+
   async function trimEventsToMax(maxEvents) {
     const eventsMap = await getEventsMap();
     let changed = false;
@@ -344,6 +359,7 @@ export function createIndexedDbEventRepository(idb = globalThis.indexedDB) {
     getEventsByTab,
     countEventsForTab,
     clearEventsForTab,
+    clearEventsForTabBefore,
     trimEventsToMax,
     putAuditRun,
     patchAuditRun,
@@ -428,6 +444,17 @@ export function createMemoryEventRepository() {
     (await getEventsByTab(tabId)).forEach((event) => events.delete(event.id));
   }
 
+  async function clearEventsForTabBefore(tabId, cutoffTimestamp) {
+    const cutoff = Number(cutoffTimestamp);
+    if (!Number.isFinite(cutoff)) {
+      await clearEventsForTab(tabId);
+      return;
+    }
+    (await getEventsByTab(tabId))
+      .filter((event) => (event.timestamp || 0) < cutoff)
+      .forEach((event) => events.delete(event.id));
+  }
+
   async function trimEventsToMax(maxEvents) {
     let changed = false;
     const eventsMap = await getEventsMap();
@@ -469,6 +496,7 @@ export function createMemoryEventRepository() {
     getEventsByTab,
     countEventsForTab,
     clearEventsForTab,
+    clearEventsForTabBefore,
     trimEventsToMax,
     putAuditRun,
     patchAuditRun,

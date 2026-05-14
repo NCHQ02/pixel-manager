@@ -3,6 +3,9 @@ import { MESSAGE_TYPES } from "../shared/messages.js";
 import { DEFAULT_SETTINGS } from "../shared/settings.js";
 import { sanitizeCapturedUrl } from "./utils.js";
 
+const LOADING_EVENT_RACE_GRACE_MS = 500;
+const NAVIGATION_CLEAR_SUPPRESS_LOADING_MS = 10000;
+
 function getStorageSession(chromeApi) {
   return chromeApi.storage.session;
 }
@@ -77,6 +80,8 @@ export class AuditSessionManager {
     this.auditTabContexts = {};
     this.activeAuditRunId = null;
     this.lastTargetTabId = null;
+    this.navigationClearTimestamps = {};
+    this.loadingFallbackTimestamps = {};
   }
 
   async hydrate() {
@@ -256,6 +261,8 @@ export class AuditSessionManager {
     this.auditTabContexts = {};
     this.activeAuditRunId = null;
     this.lastTargetTabId = null;
+    this.navigationClearTimestamps = {};
+    this.loadingFallbackTimestamps = {};
     await this.setSessionState({ auditTabs: {}, activeAuditRunId: null });
   }
 
@@ -266,6 +273,8 @@ export class AuditSessionManager {
     const { auditTabs, activeAuditRunId } = await this.getSessionState();
     delete auditTabs[tabKey];
     delete this.auditTabContexts[tabKey];
+    delete this.navigationClearTimestamps[tabKey];
+    delete this.loadingFallbackTimestamps[tabKey];
 
     const remainingContexts = Object.values(auditTabs);
     const nextContext = remainingContexts.at(-1);
@@ -283,6 +292,34 @@ export class AuditSessionManager {
   async handleTabLoading(tabId, tab) {
     if (!this.isAuditedTab(tabId) || !isAuditableUrl(tab?.url)) return false;
     const tabKey = String(tabId);
+    const now = Date.now();
+    const lastNavigationClear = this.navigationClearTimestamps[tabKey] || 0;
+    if (
+      lastNavigationClear &&
+      now - lastNavigationClear < NAVIGATION_CLEAR_SUPPRESS_LOADING_MS
+    ) {
+      return false;
+    }
+    const previousLoading = this.loadingFallbackTimestamps[tabKey] || 0;
+    const cutoffTimestamp = Math.max(
+      now - LOADING_EVENT_RACE_GRACE_MS,
+      previousLoading + LOADING_EVENT_RACE_GRACE_MS,
+    );
+    this.loadingFallbackTimestamps[tabKey] = now;
+    await this.repository.clearEventsForTabBefore(
+      tabKey,
+      cutoffTimestamp,
+    );
+    this.clearFingerprints(tabKey);
+    return true;
+  }
+
+  async handleNavigationStarted(tabId, url) {
+    if (!this.isAuditedTab(tabId) || !isAuditableUrl(url)) return false;
+    const tabKey = String(tabId);
+    const now = Date.now();
+    this.navigationClearTimestamps[tabKey] = now;
+    this.loadingFallbackTimestamps[tabKey] = now;
     await this.repository.clearEventsForTab(tabKey);
     this.clearFingerprints(tabKey);
     return true;

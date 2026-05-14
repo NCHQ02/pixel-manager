@@ -124,6 +124,7 @@
  * @property {string} selectedTabId
  * @property {boolean} isSessionView
  * @property {?string} selectedEventId
+ * @property {?{platform: string, pixelId: string}} selectedTagFilter
  * @property {Record<string, string>} expectedPixels
  * @property {{platform: string, eventName: string}[]} expectedEvents
  */
@@ -139,6 +140,7 @@
  * @property {(tabId: string) => Promise<TrackedEvent[]>} getEventsByTab
  * @property {(tabId: string, options?: {includeDiagnostics?: boolean}) => Promise<number>} countEventsForTab
  * @property {(tabId: string) => Promise<void>} clearEventsForTab
+ * @property {(tabId: string, cutoffTimestamp: number) => Promise<void>} clearEventsForTabBefore
  * @property {(maxEvents: number) => Promise<boolean>} trimEventsToMax
  * @property {(run: AuditRun) => Promise<void>} putAuditRun
  * @property {(id: string, patch: Partial<AuditRun>) => Promise<void>} patchAuditRun

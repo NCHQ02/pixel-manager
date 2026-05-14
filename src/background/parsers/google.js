@@ -21,7 +21,7 @@ export function parseGoogleRequest(url, details) {
   if (isStaticAsset(pathname)) return null;
 
   // 1. GA4
-  if (hostname.includes("google-analytics.com") && pathname.includes("/g/collect")) {
+  if (isGa4CollectEndpoint(url)) {
     const baseData = {};
     url.searchParams.forEach((value, key) => {
       baseData[key] = value;
@@ -179,6 +179,18 @@ export function parseGoogleRequest(url, details) {
 
 function isStaticAsset(pathname = "") {
   return /\.(js|css|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot)$/i.test(pathname);
+}
+
+function isGa4CollectEndpoint(url) {
+  const host = String(url.hostname || "").toLowerCase();
+  const tid = String(url.searchParams.get("tid") || "");
+  return (
+    url.pathname.includes("/g/collect") &&
+    (host.includes("google-analytics.com") ||
+      host === "analytics.google.com" ||
+      host.endsWith(".analytics.google.com") ||
+      (host.endsWith("doubleclick.net") && /^G-[A-Z0-9]+$/i.test(tid)))
+  );
 }
 
 function extractGoogleAdsLabel(eventData) {
