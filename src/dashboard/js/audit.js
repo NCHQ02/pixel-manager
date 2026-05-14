@@ -1723,5 +1723,7 @@ function renderPayloadBlock(event) {
 
 export function platformBadge(platform) {
   const meta = getPlatformMeta(platform);
-  return `<img src="${escapeHtml(meta.icon || "")}" width="16" height="16" aria-hidden="true" />`;
+  return meta.icon
+    ? `<img src="${escapeHtml(meta.icon)}" width="16" height="16" aria-hidden="true" />`
+    : "";
 }

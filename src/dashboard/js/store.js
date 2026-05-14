@@ -169,7 +169,13 @@ export class PixelStore {
   async clearAll() {
     await this.repository.clearAll();
     await chrome.storage.local.remove(["trackedEvents", "auditRuns"]);
+    try {
+      await chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.CLEAR_AUDIT_STATE,
+      });
+    } catch (_e) {}
     await this.refreshEvents();
+    await this.refreshAuditState();
     this.events = {};
     this.auditRuns = {};
     this.notify();

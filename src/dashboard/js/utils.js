@@ -4,7 +4,7 @@
 export const PLATFORMS = {
   Meta: {
     label: "Meta Pixel",
-    icon: "https://img.icons8.com/fluency/48/meta.png",
+    icon: "assets/icons/meta.png",
     color: "#0668E1",
     bgClass: "bg-meta",
     description:
@@ -13,7 +13,7 @@ export const PLATFORMS = {
   },
   TikTok: {
     label: "TikTok Pixel",
-    icon: "https://img.icons8.com/color/48/tiktok--v1.png",
+    icon: "assets/icons/tiktok.png",
     color: "#000000",
     bgClass: "bg-tiktok",
     description:
@@ -22,7 +22,7 @@ export const PLATFORMS = {
   },
   GA4: {
     label: "GA4",
-    icon: "https://fonts.gstatic.com/s/i/productlogos/google_analytics/v6/192px.svg",
+    icon: "assets/icons/ga4.svg",
     color: "#E37400",
     bgClass: "bg-google",
     description:
@@ -31,7 +31,7 @@ export const PLATFORMS = {
   },
   "Google Ads": {
     label: "Google Ads",
-    icon: "https://img.icons8.com/color/48/google-ads.png",
+    icon: "assets/icons/google-ads.png",
     color: "#4285F4",
     bgClass: "bg-google",
     description:
@@ -40,7 +40,7 @@ export const PLATFORMS = {
   },
   Floodlight: {
     label: "Floodlight",
-    icon: "https://fonts.gstatic.com/s/i/productlogos/marketing_platform/v6/192px.svg",
+    icon: "assets/icons/floodlight.svg",
     color: "#00A1E0",
     bgClass: "bg-google",
     description:
@@ -49,7 +49,7 @@ export const PLATFORMS = {
   },
   DataLayer: {
     label: "DataLayer",
-    icon: "https://img.icons8.com/doodle/48/google-tag-manager.png",
+    icon: "assets/icons/google-tag-manager.png",
     color: "#2485FF",
     bgClass: "bg-google",
     description:
@@ -58,7 +58,7 @@ export const PLATFORMS = {
   },
   Google: {
     label: "Google Suite",
-    icon: "https://img.icons8.com/color/48/google-logo.png",
+    icon: "assets/icons/google.png",
     color: "#4285F4",
     bgClass: "bg-google",
     description:
@@ -67,7 +67,7 @@ export const PLATFORMS = {
   },
   Diagnostics: {
     label: "Diagnostics",
-    icon: "https://img.icons8.com/color/48/activity.png",
+    icon: "assets/icons/diagnostics.png",
     color: "#6B7280",
     bgClass: "bg-cream",
     description:

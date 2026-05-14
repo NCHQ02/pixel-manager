@@ -218,6 +218,11 @@
   }
 
   addRuntimeListener((message) => {
+    if (message.type === "AUDIT_DEACTIVATED") {
+      deactivateContentScript();
+      return;
+    }
+
     if (message.type === "PIXEL_EVENT_CAPTURED") {
       updateOverlay(message.eventCount);
     }

@@ -48,6 +48,8 @@
  * @property {string} auditRunId
  * @property {"network"|"datalayer"|"scanner"} source
  * @property {number} [parserSchemaVersion]
+ * @property {string} [dedupeKey]
+ * @property {string} [payloadHash]
  */
 
 /**
@@ -88,6 +90,11 @@
  * @property {number} startedAt
  * @property {string} reloadMode
  * @property {boolean} startedAfterLoad
+ * @property {"full"|"network_only"|"blocked"} [activationMode]
+ * @property {boolean} [contentInjected]
+ * @property {boolean} [mainWorldInjected]
+ * @property {string} [activationError]
+ * @property {string[]} [activationWarnings]
  */
 
 /**

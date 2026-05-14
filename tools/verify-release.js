@@ -43,24 +43,15 @@ const sourceFiles = walk(path.join(root, "src")).filter((file) =>
   /\.(js|css|html|json|svg)$/.test(file),
 );
 const remoteUrlPattern = /https?:\/\//i;
-const allowedVisualRemotePatterns = [
-  /^https:\/\/fonts\.googleapis\.com\//,
-  /^https:\/\/fonts\.gstatic\.com\//,
-  /^https:\/\/img\.icons8\.com\//,
-];
 sourceFiles.forEach((file) => {
   const content = fs
     .readFileSync(file, "utf8")
     .replaceAll("http://www.w3.org/2000/svg", "")
     .replaceAll("http://www.w3.org/1999/xlink", "");
   const urls = content.match(/https?:\/\/[^"'()\s]+/gi) || [];
-  const unexpectedUrls = urls.filter(
-    (url) =>
-      !allowedVisualRemotePatterns.some((pattern) => pattern.test(url)),
-  );
-  if (remoteUrlPattern.test(content) && unexpectedUrls.length > 0) {
+  if (remoteUrlPattern.test(content) && urls.length > 0) {
     fail(
-      `unexpected remote URL found in extension source: ${path.relative(root, file)} (${unexpectedUrls.join(", ")})`,
+      `remote URL found in extension source: ${path.relative(root, file)} (${urls.join(", ")})`,
     );
   }
 });

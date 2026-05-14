@@ -5,11 +5,28 @@
   window.dataLayer = window.dataLayer || [];
   const originalPush = window.dataLayer.push;
 
+  function isArgumentsObject(value) {
+    return Object.prototype.toString.call(value) === '[object Arguments]';
+  }
+
+  function normalizeDataLayerItem(item) {
+    if (isArgumentsObject(item)) {
+      return Array.prototype.slice.call(item).map(normalizeDataLayerItem);
+    }
+    if (Array.isArray(item)) {
+      return item.map(normalizeDataLayerItem);
+    }
+    return item;
+  }
+
   function safeClone(obj) {
     const cache = new Set();
     const str = JSON.stringify(obj, (key, value) => {
       if (value === undefined) return '[undefined]';
       if (typeof value === 'object' && value !== null) {
+        if (isArgumentsObject(value)) {
+          return Array.prototype.slice.call(value).map(normalizeDataLayerItem);
+        }
         // Drop DOM Nodes (which usually contain circular React Fiber references)
         if (value.nodeType || value === window || value === document) {
           return '[DOM Element]';
@@ -26,7 +43,7 @@
   }
 
   window.dataLayer.push = function() {
-    const args = Array.prototype.slice.call(arguments);
+    const args = Array.prototype.slice.call(arguments).map(normalizeDataLayerItem);
     
     try {
       const clonedArgs = safeClone(args);
@@ -71,21 +88,22 @@
   function getDataLayerCommands() {
     const layer = Array.isArray(window.dataLayer) ? window.dataLayer : [];
     return layer.slice(0, 100).map(function(item, index) {
-      if (Array.isArray(item)) {
+      const normalizedItem = normalizeDataLayerItem(item);
+      if (Array.isArray(normalizedItem)) {
         return {
           index: index,
-          type: typeof item[0] === 'string' ? item[0] : 'array',
-          name: typeof item[1] === 'string' ? item[1] : ''
+          type: typeof normalizedItem[0] === 'string' ? normalizedItem[0] : 'array',
+          name: typeof normalizedItem[1] === 'string' ? normalizedItem[1] : ''
         };
       }
-      if (item && typeof item === 'object') {
+      if (normalizedItem && typeof normalizedItem === 'object') {
         return {
           index: index,
-          type: item.event ? 'event' : 'object',
-          name: item.event || ''
+          type: normalizedItem.event ? 'event' : 'object',
+          name: normalizedItem.event || ''
         };
       }
-      return { index: index, type: typeof item, name: '' };
+      return { index: index, type: typeof normalizedItem, name: '' };
     });
   }
 

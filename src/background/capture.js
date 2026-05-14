@@ -27,6 +27,27 @@ async function safeTabSend(chromeApi, tabId, message) {
 
 const PARSER_SCHEMA_VERSION = 2;
 
+function isNumericKeyArrayLike(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  if (item.event) return false;
+  const keys = Object.keys(item);
+  if (keys.length === 0 || !keys.every((key) => /^\d+$/.test(key))) return false;
+  const maxIndex = Math.max(...keys.map((key) => Number(key)));
+  return keys.every((key) => Number(key) >= 0) && maxIndex < 50;
+}
+
+function normalizeDataLayerItem(item) {
+  if (Array.isArray(item)) return item.map(normalizeDataLayerItem);
+  if (!isNumericKeyArrayLike(item)) return item;
+  const normalized = [];
+  Object.keys(item)
+    .sort((a, b) => Number(a) - Number(b))
+    .forEach((key) => {
+      normalized[Number(key)] = normalizeDataLayerItem(item[key]);
+    });
+  return normalized;
+}
+
 export class CaptureEngine {
   /**
    * @param {Object} deps
@@ -100,7 +121,8 @@ export class CaptureEngine {
     if (!Array.isArray(payloadArray)) return;
 
     const eventRecords = [];
-    for (const [index, item] of payloadArray.entries()) {
+    for (const [index, rawItem] of payloadArray.entries()) {
+      const item = normalizeDataLayerItem(rawItem);
       if (!item) continue;
 
       let eventName = "DataLayer Init";
@@ -134,15 +156,16 @@ export class CaptureEngine {
       if (isDiag && !settings.captureDiagnostics) continue;
 
       const sanitizedItem = sanitizeCapturedData(item);
-      const { isDuplicate, isWarning } = checkDeduplication(
-        tabId,
-        "DataLayer",
-        "GTM / DOM",
-        eventName,
-        sanitizedItem,
-        "DOM",
-        settings.duplicateWindow,
-      );
+      const { isDuplicate, isWarning, dedupeKey, payloadHash } =
+        checkDeduplication(
+          tabId,
+          "DataLayer",
+          "GTM / DOM",
+          eventName,
+          sanitizedItem,
+          "DOM",
+          settings.duplicateWindow,
+        );
 
       if (isDuplicate) {
         await this.persistDuplicate(
@@ -152,6 +175,8 @@ export class CaptureEngine {
             pixelId: "GTM / DOM",
             eventName,
             method: "DOM",
+            dedupeKey,
+            payloadHash,
           },
           sanitizedItem,
         );
@@ -179,6 +204,8 @@ export class CaptureEngine {
           this.sessionManager.getActiveRunId(),
         source: "datalayer",
         parserSchemaVersion: PARSER_SCHEMA_VERSION,
+        dedupeKey,
+        payloadHash,
       };
 
       eventRecords.push(eventRecord);
@@ -201,7 +228,7 @@ export class CaptureEngine {
 
     const tabId = sender.tab ? String(sender.tab.id) : "background_worker";
     const eventData = sanitizeCapturedData(message.data || {});
-    const { isDuplicate } = checkDeduplication(
+    const { isDuplicate, dedupeKey, payloadHash } = checkDeduplication(
       tabId,
       "Diagnostics",
       "Local Scanner",
@@ -231,6 +258,8 @@ export class CaptureEngine {
         this.sessionManager.getActiveRunId(),
       source: "scanner",
       parserSchemaVersion: PARSER_SCHEMA_VERSION,
+      dedupeKey,
+      payloadHash,
     };
 
     await this.persistEvent(
@@ -262,15 +291,16 @@ export class CaptureEngine {
         if (parsed.isDiagnostic && !settings.captureDiagnostics) continue;
 
         const eventData = sanitizeCapturedData(parsed.eventData);
-        const { isDuplicate, isWarning } = checkDeduplication(
-          tabId,
-          parsed.platform,
-          parsed.pixelId,
-          parsed.eventName,
-          eventData,
-          details.method,
-          settings.duplicateWindow,
-        );
+        const { isDuplicate, isWarning, dedupeKey, payloadHash } =
+          checkDeduplication(
+            tabId,
+            parsed.platform,
+            parsed.pixelId,
+            parsed.eventName,
+            eventData,
+            details.method,
+            settings.duplicateWindow,
+          );
 
         if (isDuplicate) {
           await this.persistDuplicate(
@@ -280,6 +310,8 @@ export class CaptureEngine {
               pixelId: parsed.pixelId,
               eventName: parsed.eventName,
               method: details.method,
+              dedupeKey,
+              payloadHash,
             },
             eventData,
           );
@@ -323,6 +355,8 @@ export class CaptureEngine {
             this.sessionManager.getActiveRunId(),
           source: "network",
           parserSchemaVersion: PARSER_SCHEMA_VERSION,
+          dedupeKey,
+          payloadHash,
         };
 
         eventRecords.push(eventRecord);

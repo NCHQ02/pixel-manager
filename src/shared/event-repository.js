@@ -35,6 +35,30 @@ function normalizeEvent(event) {
   };
 }
 
+function findDuplicateTarget(tabEvents, match) {
+  const candidates = tabEvents.filter(
+    (event) =>
+      event.platform === match.platform &&
+      event.pixelId === match.pixelId &&
+      event.eventName === match.eventName &&
+      event.method === match.method,
+  );
+
+  const hasExactKey = !!(match.dedupeKey || match.payloadHash);
+  if (!hasExactKey) return candidates[0] || null;
+
+  const exact = candidates.find(
+    (event) =>
+      (match.dedupeKey && event.dedupeKey === match.dedupeKey) ||
+      (match.payloadHash && event.payloadHash === match.payloadHash),
+  );
+  if (exact) return exact;
+
+  return candidates.every((event) => !event.dedupeKey && !event.payloadHash)
+    ? candidates[0] || null
+    : null;
+}
+
 function storageGet(storageArea, keys) {
   return new Promise((resolve) => {
     storageArea.get(keys, (res) => resolve(res || {}));
@@ -189,13 +213,7 @@ export function createIndexedDbEventRepository(idb = globalThis.indexedDB) {
 
   async function incrementDuplicateEvent(match, eventData = {}) {
     const tabEvents = await getEventsByTab(String(match.tabId || ""));
-    const target = tabEvents.find(
-      (event) =>
-        event.platform === match.platform &&
-        event.pixelId === match.pixelId &&
-        event.eventName === match.eventName &&
-        event.method === match.method,
-    );
+    const target = findDuplicateTarget(tabEvents, match);
 
     if (!target) return null;
     const updated = {
@@ -369,12 +387,9 @@ export function createMemoryEventRepository() {
   }
 
   async function incrementDuplicateEvent(match, eventData = {}) {
-    const target = (await getEventsByTab(String(match.tabId || ""))).find(
-      (event) =>
-        event.platform === match.platform &&
-        event.pixelId === match.pixelId &&
-        event.eventName === match.eventName &&
-        event.method === match.method,
+    const target = findDuplicateTarget(
+      await getEventsByTab(String(match.tabId || "")),
+      match,
     );
     if (!target) return null;
     const updated = {

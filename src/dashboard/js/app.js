@@ -262,11 +262,15 @@ function renderSession(reportModel) {
   const reloadNote = auditTab?.startedAfterLoad
     ? "Started after page load. Use Start + Reload to catch first-page events."
     : "Ready for controlled tracking QA.";
+  const activationNote =
+    auditTab?.activationMode === "network_only"
+      ? " Network-only mode; DataLayer and scanner evidence are unavailable on this page."
+      : "";
 
   els.overviewDomain.textContent = auditTarget;
   els.overviewDomain.title = auditRun?.url || auditTab?.url || auditTarget;
   els.auditSessionStatus.textContent = auditRun
-    ? `${reloadNote} ${reportModel.summary.total} event(s) captured.`
+    ? `${reloadNote}${activationNote} ${reportModel.summary.total} event(s) captured.`
     : "Open a target site and start a controlled audit window.";
 }
 

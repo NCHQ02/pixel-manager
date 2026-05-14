@@ -31,7 +31,9 @@ Core workflows:
 OmniSignal asks for permissions needed to activate auditing on a selected tab,
 inspect supported marketing tracking requests, store audit results locally, and
 render the dashboard. Host permissions are limited to supported tracking
-platform domains rather than every URL.
+platform domains rather than every URL. The `*.google.com/*` host permission is
+kept because Google Ads conversion hits can use `www.google.com/pagead/conversion`
+endpoints.
 
 ## Screenshot Checklist
 
@@ -45,9 +47,8 @@ platform domains rather than every URL.
 
 - Confirm `docs/privacy-policy.md` uses the final public publisher contact
   details before public submission.
-- Private beta uses the original remote visual assets for UI fidelity. Before a
-  public Chrome Web Store submission, decide whether to package equivalent local
-  font/icon assets.
+- Confirm dashboard fonts and platform icons are packaged in local assets and
+  the extension source contains no remote font, icon, script, or style URLs.
 - Run `npm.cmd test`.
 - Run `npm.cmd run verify`.
 - Load unpacked extension in Chrome and test one live site.

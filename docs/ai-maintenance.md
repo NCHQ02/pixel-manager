@@ -4,8 +4,8 @@
 
 - Preserve dashboard element IDs, CSS class names, and visible workflow labels
   unless a visual regression pass is part of the change.
-- Preserve the current dashboard visual layer, including font import and
-  platform icon metadata, unless a dedicated UI parity pass replaces them.
+- Preserve the current dashboard visual layer, including local packaged fonts
+  and platform icons, unless a dedicated UI parity pass replaces them.
 - Keep parser functions pure: input is URL/request details, output is parsed
   event data or `null`.
 - Store captured events only through `event-repository.js`; do not reintroduce

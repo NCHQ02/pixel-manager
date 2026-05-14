@@ -17,14 +17,12 @@
   ],
   "host_permissions": [
     "*://*.facebook.com/*",
-    "*://*.facebook.net/*",
     "*://*.tiktok.com/*",
     "*://*.byteoversea.com/*",
     "*://*.google-analytics.com/*",
     "*://*.google.com/*",
     "*://*.googleadservices.com/*",
-    "*://*.doubleclick.net/*",
-    "*://*.googleads.g.doubleclick.net/*"
+    "*://*.doubleclick.net/*"
   ],
   "background": {
     "service_worker": "src/background/index.js",

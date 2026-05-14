@@ -1,4 +1,5 @@
 import "../shared/contracts.js";
+import { MESSAGE_TYPES } from "../shared/messages.js";
 import { DEFAULT_SETTINGS } from "../shared/settings.js";
 import { sanitizeCapturedUrl } from "./utils.js";
 
@@ -16,6 +17,28 @@ function storageSet(storageArea, value) {
   return new Promise((resolve) => {
     storageArea.set(value, () => resolve());
   });
+}
+
+async function safeTabSend(chromeApi, tabId, message) {
+  try {
+    await chromeApi.tabs.sendMessage(Number(tabId), message);
+  } catch (_e) {}
+}
+
+function buildActivationResult({
+  contentInjected = false,
+  mainWorldInjected = false,
+  errors = [],
+} = {}) {
+  const warnings = errors.filter(Boolean).map((error) => String(error));
+  return {
+    activationMode:
+      contentInjected && mainWorldInjected ? "full" : "network_only",
+    contentInjected,
+    mainWorldInjected,
+    error: warnings[0] || "",
+    warnings,
+  };
 }
 
 export function isAuditableUrl(url = "") {
@@ -105,7 +128,9 @@ export class AuditSessionManager {
   }
 
   async enableAuditingForTab(tab, options = {}) {
-    if (!tab?.id || !isAuditableUrl(tab.url)) return null;
+    if (tab?.id === undefined || tab?.id === null || !isAuditableUrl(tab.url)) {
+      return null;
+    }
 
     const tabKey = String(tab.id);
     const existingContext = this.auditTabContexts[tabKey];
@@ -132,6 +157,7 @@ export class AuditSessionManager {
       this.clearFingerprints(tabKey);
     }
 
+    const activation = await this.injectAuditScripts(tab.id);
     const { auditTabs } = await this.getSessionState();
     const context = {
       ...existingContext,
@@ -144,6 +170,11 @@ export class AuditSessionManager {
       startedAfterLoad: createNewRun
         ? tab.status === "complete" && reloadMode !== "reload"
         : !!existingContext?.startedAfterLoad,
+      activationMode: activation.activationMode,
+      contentInjected: activation.contentInjected,
+      mainWorldInjected: activation.mainWorldInjected,
+      activationError: activation.error,
+      activationWarnings: activation.warnings,
     };
     auditTabs[tabKey] = context;
     this.auditTabContexts[tabKey] = context;
@@ -162,8 +193,6 @@ export class AuditSessionManager {
       expectedEvents: existingRun?.expectedEvents || [],
     });
 
-    await this.injectAuditScripts(tab.id);
-
     if (options.reload) {
       this.chrome.tabs.reload(tab.id);
     }
@@ -172,19 +201,62 @@ export class AuditSessionManager {
   }
 
   async injectAuditScripts(tabId) {
+    let contentInjected = false;
+    let mainWorldInjected = false;
+    const errors = [];
+
     try {
       await this.chrome.scripting.executeScript({
         target: { tabId },
         files: ["src/content/content.js"],
       });
+      contentInjected = true;
+    } catch (err) {
+      errors.push(err?.message || err);
+    }
+
+    try {
       await this.chrome.scripting.executeScript({
         target: { tabId },
         files: ["src/content/inject.js"],
         world: "MAIN",
       });
+      mainWorldInjected = true;
     } catch (err) {
-      console.warn("[OmniSignal] Could not activate tab audit:", err);
+      errors.push(err?.message || err);
     }
+
+    const activation = buildActivationResult({
+      contentInjected,
+      mainWorldInjected,
+      errors,
+    });
+    if (activation.activationMode !== "full") {
+      console.warn("[OmniSignal] Audit activated in network-only mode:", errors);
+    }
+    return activation;
+  }
+
+  async clearAuditState() {
+    const tabIds = new Set([
+      ...this.auditedTabIds,
+      ...Object.keys(this.auditTabContexts).map((tabId) => Number(tabId)),
+    ]);
+
+    await Promise.all(
+      [...tabIds].map((tabId) =>
+        safeTabSend(this.chrome, tabId, {
+          type: MESSAGE_TYPES.AUDIT_DEACTIVATED,
+        }),
+      ),
+    );
+
+    [...tabIds].forEach((tabId) => this.clearFingerprints(String(tabId)));
+    this.auditedTabIds.clear();
+    this.auditTabContexts = {};
+    this.activeAuditRunId = null;
+    this.lastTargetTabId = null;
+    await this.setSessionState({ auditTabs: {}, activeAuditRunId: null });
   }
 
   async handleTabRemoved(tabId) {

@@ -4,10 +4,13 @@ import assert from "node:assert/strict";
 import { parseMetaRequest } from "../src/background/parsers/meta.js";
 import { parseTikTokRequest } from "../src/background/parsers/tiktok.js";
 import { parseGoogleRequest } from "../src/background/parsers/google.js";
+import { CaptureEngine } from "../src/background/capture.js";
 import {
   sanitizeCapturedData,
   sanitizeCapturedUrl,
 } from "../src/background/utils.js";
+import { createMemoryEventRepository } from "../src/shared/event-repository.js";
+import { DEFAULT_SETTINGS } from "../src/shared/settings.js";
 import {
   auditEvent,
   classifyEventStatus,
@@ -17,6 +20,35 @@ import {
 const rawBody = (body) => ({
   raw: [{ bytes: new TextEncoder().encode(body).buffer }],
 });
+
+function createDataLayerHarness(settings = DEFAULT_SETTINGS) {
+  const repository = createMemoryEventRepository();
+  const sessionManager = {
+    isAuditedTab: () => true,
+    getContextForTab: () => ({ auditRunId: "run-1" }),
+    getActiveRunId: () => "run-1",
+  };
+  const sentRuntimeMessages = [];
+  const sentTabMessages = [];
+  const engine = new CaptureEngine({
+    chromeApi: {
+      runtime: {
+        async sendMessage(message) {
+          sentRuntimeMessages.push(message);
+        },
+      },
+      tabs: {
+        async sendMessage(tabId, message) {
+          sentTabMessages.push({ tabId, message });
+        },
+      },
+    },
+    repository,
+    sessionManager,
+    getSettings: () => settings,
+  });
+  return { engine, repository, sentRuntimeMessages, sentTabMessages };
+}
 
 test("parses Meta Purchase fixture", () => {
   const parsed = parseMetaRequest(
@@ -202,6 +234,57 @@ test("parses Floodlight ddm activity path fixture", () => {
   assert.equal(parsed.eventData.ord, "order-1");
 });
 
+test("captures numeric-key gtag event arguments as the actual event name", async () => {
+  const { engine, repository } = createDataLayerHarness();
+
+  await engine.handleDataLayerMessage(
+    {
+      type: "DATALAYER_PUSH",
+      data: {
+        timestamp: 1000,
+        payload: [
+          {
+            0: "event",
+            1: "purchase",
+            2: { value: 10, currency: "USD" },
+          },
+        ],
+      },
+    },
+    { tab: { id: 1, url: "https://shop.test/thank-you" } },
+  );
+
+  const [event] = await repository.getEventsByTab("1");
+  assert.equal(event.eventName, "purchase");
+  assert.equal(event.status, "valid");
+  assert.deepEqual(event.eventData[2], { value: 10, currency: "USD" });
+});
+
+test("captures gtag consent and config commands as diagnostics", async () => {
+  const { engine, repository } = createDataLayerHarness();
+
+  await engine.handleDataLayerMessage(
+    {
+      type: "DATALAYER_HISTORY",
+      data: {
+        timestamp: 1000,
+        payload: [
+          { 0: "consent", 1: "default", 2: { ad_storage: "denied" } },
+          { 0: "config", 1: "G-TEST123" },
+        ],
+      },
+    },
+    { tab: { id: 1, url: "https://shop.test/" } },
+  );
+
+  const events = await repository.getEventsByTab("1");
+  assert.deepEqual(
+    events.map((event) => event.eventName).sort(),
+    ["DataLayer: config", "DataLayer: consent"],
+  );
+  assert.ok(events.every((event) => event.isDiagnostic));
+});
+
 test("redacts plaintext sensitive values before storage", () => {
   const data = sanitizeCapturedData({
     email: "buyer@example.com",
@@ -227,6 +310,26 @@ test("redacts sensitive URL query values before storage", () => {
     url,
     "https://shop.test/thank-you?email=%5Bredacted+sensitive+value%5D&order_id=123",
   );
+});
+
+test("redacts sensitive URL path hash and nested URL payload strings", () => {
+  const url = sanitizeCapturedUrl(
+    "https://shop.test/customer/buyer@example.com/0901234567#buyer@example.com",
+  );
+  const data = sanitizeCapturedData({
+    checkout_url:
+      "https://shop.test/customer/buyer@example.com/thank-you?phone=0901234567#buyer@example.com",
+    phone: ["0901234567"],
+    mobile: 901234567,
+  });
+
+  assert.doesNotMatch(url, /buyer@example\.com|0901234567/);
+  assert.doesNotMatch(
+    JSON.stringify(data),
+    /buyer@example\.com|0901234567|901234567/,
+  );
+  assert.match(data.checkout_url, /shop\.test/);
+  assert.ok(data._privacyRedactions.length >= 3);
 });
 
 test("classifies missing purchase parameters and escapes HTML", () => {

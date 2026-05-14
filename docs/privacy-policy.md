@@ -15,11 +15,13 @@ event payload parameters.
 
 ## Where Data Is Stored
 
-Captured audit data is stored only in `chrome.storage.local` on the user's
-browser. OmniSignal does not include a backend service, does not transmit audit
-data to the developer, and does not sell or share captured data.
+Captured audit events and audit runs are stored only in the extension's local
+IndexedDB database on the user's browser. Settings and draft checklist
+preferences are stored in `chrome.storage.local`. OmniSignal does not include a
+backend service, does not transmit audit data to the developer, and does not
+sell or share captured data.
 
-Temporary audit activation state is stored in browser session storage so the
+Temporary audit activation state is stored in `chrome.storage.session` so the
 extension can continue an active audit if the extension service worker restarts.
 
 ## Sensitive Data Handling

@@ -4,11 +4,13 @@ import assert from "node:assert/strict";
 import { AuditSessionManager } from "../src/background/session.js";
 import { createMemoryEventRepository } from "../src/shared/event-repository.js";
 
-function createMockChrome() {
+function createMockChrome(options = {}) {
   const sessionData = {};
   const executed = [];
+  const sentMessages = [];
   return {
     __executed: executed,
+    __sentMessages: sentMessages,
     storage: {
       session: {
         get(keys, cb) {
@@ -31,10 +33,19 @@ function createMockChrome() {
       async query() {
         return [];
       },
+      async sendMessage(tabId, message) {
+        sentMessages.push({ tabId, message });
+      },
       reload() {},
     },
     scripting: {
       async executeScript(args) {
+        if (options.failMainWorld && args.world === "MAIN") {
+          throw new Error("main world blocked");
+        }
+        if (options.failContent && args.files.includes("src/content/content.js")) {
+          throw new Error("content blocked");
+        }
         executed.push(args);
       },
     },
@@ -154,4 +165,52 @@ test("new audit run clears only the current tab event scope", async () => {
 
   assert.equal((await repository.getEventsByTab("7")).length, 0);
   assert.equal((await repository.getEventsByTab("8")).length, 1);
+});
+
+test("activation reports network-only mode when main-world injection fails", async () => {
+  const chromeApi = createMockChrome({ failMainWorld: true });
+  const repository = createMemoryEventRepository();
+  const manager = new AuditSessionManager({
+    chromeApi,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await manager.hydrate();
+
+  const context = await manager.enableAuditingForTab(
+    { id: 7, url: "https://shop.test/", status: "complete" },
+    { createNewRun: true },
+  );
+
+  assert.equal(context.activationMode, "network_only");
+  assert.equal(context.contentInjected, true);
+  assert.equal(context.mainWorldInjected, false);
+  assert.match(context.activationWarnings[0], /main world blocked/);
+});
+
+test("clearAuditState clears active tabs, run id, and deactivates overlays", async () => {
+  const chromeApi = createMockChrome();
+  const repository = createMemoryEventRepository();
+  const clearedFingerprints = [];
+  const manager = new AuditSessionManager({
+    chromeApi,
+    repository,
+    clearFingerprints: (tabId) => clearedFingerprints.push(tabId),
+  });
+  await manager.hydrate();
+
+  await manager.enableAuditingForTab(
+    { id: 7, url: "https://shop.test/", status: "complete" },
+    { createNewRun: true },
+  );
+  clearedFingerprints.length = 0;
+  await manager.clearAuditState();
+
+  const state = await manager.getStateResponse();
+  assert.deepEqual(state.auditTabs, {});
+  assert.equal(state.activeAuditRunId, null);
+  assert.deepEqual(clearedFingerprints, ["7"]);
+  assert.deepEqual(chromeApi.__sentMessages, [
+    { tabId: 7, message: { type: "AUDIT_DEACTIVATED" } },
+  ]);
 });

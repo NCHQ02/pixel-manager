@@ -19,6 +19,8 @@ const makeEvent = (patch = {}) => ({
   duplicateCount: patch.duplicateCount || 0,
   auditRunId: patch.auditRunId || "run-1",
   source: patch.source || "network",
+  dedupeKey: patch.dedupeKey,
+  payloadHash: patch.payloadHash,
 });
 
 test("memory repository groups events by tab and trims newest per tab", async () => {
@@ -92,6 +94,77 @@ test("memory repository increments duplicate event without adding UI noise", asy
   assert.equal(event.status, "duplicate");
   assert.equal(event.duplicateCount, 1);
   assert.equal(event.eventData._duplicateWarning, true);
+});
+
+test("memory repository increments only the exact duplicate key", async () => {
+  const repo = createMemoryEventRepository();
+  await repo.addEvent(
+    makeEvent({
+      id: "purchase-a",
+      eventName: "Purchase",
+      eventData: { eid: "A" },
+      dedupeKey: "A",
+      payloadHash: "hash-a",
+      timestamp: 1,
+    }),
+  );
+  await repo.addEvent(
+    makeEvent({
+      id: "purchase-b",
+      eventName: "Purchase",
+      eventData: { eid: "B" },
+      dedupeKey: "B",
+      payloadHash: "hash-b",
+      timestamp: 2,
+    }),
+  );
+
+  const updated = await repo.incrementDuplicateEvent(
+    {
+      tabId: "1",
+      platform: "Meta",
+      pixelId: "123",
+      eventName: "Purchase",
+      method: "GET",
+      dedupeKey: "A",
+      payloadHash: "hash-a",
+    },
+    { eid: "A" },
+  );
+  const events = await repo.getEventsByTab("1");
+
+  assert.equal(updated.id, "purchase-a");
+  assert.equal(events.find((item) => item.id === "purchase-a").duplicateCount, 1);
+  assert.equal(events.find((item) => item.id === "purchase-b").duplicateCount, 0);
+});
+
+test("memory repository avoids legacy fallback when keyed events do not match", async () => {
+  const repo = createMemoryEventRepository();
+  await repo.addEvent(
+    makeEvent({
+      id: "purchase-b",
+      eventName: "Purchase",
+      eventData: { eid: "B" },
+      dedupeKey: "B",
+      payloadHash: "hash-b",
+      timestamp: 2,
+    }),
+  );
+
+  const updated = await repo.incrementDuplicateEvent(
+    {
+      tabId: "1",
+      platform: "Meta",
+      pixelId: "123",
+      eventName: "Purchase",
+      method: "GET",
+      dedupeKey: "A",
+      payloadHash: "hash-a",
+    },
+    { eid: "A" },
+  );
+
+  assert.equal(updated, null);
 });
 
 test("memory repository clears audit runs and events together", async () => {

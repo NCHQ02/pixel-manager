@@ -45,7 +45,12 @@ export function registerRuntimeMessages({
         await ready;
         const tab = sender.tab || (await sessionManager.getTargetTab());
         if (!tab) {
-          sendResponse({ ok: false, error: "No auditable tab is available." });
+          sendResponse({
+            ok: false,
+            activationMode: "blocked",
+            warnings: ["No auditable tab is available."],
+            error: "No auditable tab is available.",
+          });
           return;
         }
 
@@ -54,12 +59,33 @@ export function registerRuntimeMessages({
           reload: !!message.reload,
           reloadMode: message.reload ? "reload" : "none",
         });
+        if (!context) {
+          sendResponse({
+            ok: false,
+            activationMode: "blocked",
+            warnings: ["The selected tab cannot be audited."],
+            error: "The selected tab cannot be audited.",
+          });
+          return;
+        }
         await captureEngine.notifyEventsChanged(tab.id);
         sendResponse({
           ok: true,
           tabId: String(tab.id),
-          auditRunId: context?.auditRunId || sessionManager.getActiveRunId(),
+          auditRunId: context.auditRunId || sessionManager.getActiveRunId(),
+          activationMode: context.activationMode || "full",
+          warnings: context.activationWarnings || [],
         });
+      })();
+      return true;
+    }
+
+    if (message.type === MESSAGE_TYPES.CLEAR_AUDIT_STATE) {
+      (async () => {
+        await ready;
+        await sessionManager.clearAuditState();
+        await captureEngine.notifyEventsChanged();
+        sendResponse({ ok: true });
       })();
       return true;
     }
