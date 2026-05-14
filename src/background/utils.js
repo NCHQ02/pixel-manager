@@ -261,12 +261,13 @@ export function checkDeduplication(
   if (lastBroad && now - lastBroad.timestamp < windowMs && lastExact) {
     const exactWithinWindow = now - lastExact.timestamp < windowMs;
     if (exactWithinWindow) {
-      if (hasEventId || lastExact.method === method) {
-        isDuplicate = true;
-      } else if (platform === "Meta") {
-        // Meta can mirror the same browser hit across GET/POST transport.
-        // Suppress that local capture noise without showing a duplicate badge.
+      if (platform === "Meta" && !hasEventId) {
+        // Meta browser hits often replay or mirror without eid/event_id.
+        // Align with Pixel Helper by suppressing that local capture noise
+        // instead of surfacing a duplicate badge.
         isSuppressed = true;
+      } else if (hasEventId || lastExact.method === method) {
+        isDuplicate = true;
       }
     }
   }

@@ -372,6 +372,34 @@ test("suppresses Meta GET/POST transport mirror without duplicate badge", async 
   assert.equal(events[0].duplicateCount, 0);
 });
 
+test("suppresses repeated Meta PageView GET without event id", async () => {
+  clearFingerprints("14");
+  const { engine, repository } = createDataLayerHarness();
+  const url =
+    "https://www.facebook.com/tr/?id=781185679583502&ev=PageView&dl=https%3A%2F%2Fshop.test%2F&fbp=fb.1.1234567890.987654321";
+
+  await engine.handleNetworkRequest({
+    tabId: 14,
+    method: "GET",
+    url,
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/",
+  });
+  await engine.handleNetworkRequest({
+    tabId: 14,
+    method: "GET",
+    url,
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/",
+  });
+
+  const events = await repository.getEventsByTab("14");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventName, "PageView");
+  assert.equal(events[0].status, "valid");
+  assert.equal(events[0].duplicateCount, 0);
+});
+
 test("keeps Meta event_id duplicate evidence when the same id repeats", async () => {
   clearFingerprints("13");
   const { engine, repository } = createDataLayerHarness();
