@@ -44,17 +44,24 @@ function normalizeEvent(event) {
 }
 
 function findDuplicateTarget(tabEvents, match) {
-  const candidates = tabEvents.filter(
+  const baseCandidates = tabEvents.filter(
     (event) =>
       event.platform === match.platform &&
       event.pixelId === match.pixelId &&
-      event.eventName === match.eventName &&
-      event.method === match.method,
+      event.eventName === match.eventName,
   );
+  const methodCandidates = baseCandidates.filter(
+    (event) => event.method === match.method,
+  );
+  const hasServerStyleDedupeKey =
+    !!match.dedupeKey && match.dedupeKey !== match.payloadHash;
 
   const hasExactKey = !!(match.dedupeKey || match.payloadHash);
-  if (!hasExactKey) return candidates[0] || null;
+  if (!hasExactKey) return methodCandidates[0] || null;
 
+  const candidates = hasServerStyleDedupeKey
+    ? baseCandidates
+    : methodCandidates;
   const exact = candidates.find(
     (event) =>
       (match.dedupeKey && event.dedupeKey === match.dedupeKey) ||

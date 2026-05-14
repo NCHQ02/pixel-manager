@@ -227,7 +227,7 @@ export function sanitizeCapturedData(data) {
  * @param {string} eventName 
  * @param {Object} eventData 
  * @param {string} method 
- * @returns {{ isDuplicate: boolean, isWarning: boolean, dedupeKey: string, payloadHash: string }}
+ * @returns {{ isDuplicate: boolean, isWarning: boolean, isSuppressed: boolean, dedupeKey: string, payloadHash: string }}
  */
 export function checkDeduplication(
   tabId,
@@ -239,6 +239,7 @@ export function checkDeduplication(
   windowMs = DEFAULT_SETTINGS.duplicateWindow,
 ) {
   const eventId = eventData.eid || eventData.event_id || "";
+  const hasEventId = !!eventId;
   const payloadHash = generateStablePayloadHash(eventData);
   let dedupeKey = eventId;
 
@@ -255,36 +256,27 @@ export function checkDeduplication(
 
   let isDuplicate = false;
   let isWarning = false;
+  let isSuppressed = false;
 
-  if (lastBroad && now - lastBroad.timestamp < windowMs) {
-    // 1. Drop browser fallback (POST vs GET)
-    if (lastBroad.method !== method) {
-      isDuplicate = true;
+  if (lastBroad && now - lastBroad.timestamp < windowMs && lastExact) {
+    const exactWithinWindow = now - lastExact.timestamp < windowMs;
+    if (exactWithinWindow) {
+      if (hasEventId || lastExact.method === method) {
+        isDuplicate = true;
+      } else if (platform === "Meta") {
+        // Meta can mirror the same browser hit across GET/POST transport.
+        // Suppress that local capture noise without showing a duplicate badge.
+        isSuppressed = true;
+      }
     }
-    
-    // 2. Drop identical double-fires (Same method, Same payload)
-    // Professional trackers should merge these to avoid UI noise.
-    if (lastExact && now - lastExact.timestamp < windowMs) {
-       isDuplicate = true;
-    }
-
-    // 3. Flag "Same Event Name" but "Different Payload" as a Warning
-    // This is useful for Social Pixels (Meta, TikTok) to detect double-firing.
-    // We EXCLUDE DataLayer and GA4 diagnostic pings as they naturally fire in bursts.
-    const socialPlatforms = ["Meta", "TikTok", "GA4"];
-    if (!isDuplicate && lastBroad.timestamp > 0 && socialPlatforms.includes(platform)) {
-      isWarning = true;
-    }
-
   }
 
-
-  if (!isDuplicate) {
+  if (!isDuplicate && !isSuppressed) {
     lastEventFingerprints.set(broadFingerprint, { timestamp: now, method });
     lastEventFingerprints.set(exactFingerprint, { timestamp: now, method });
   }
 
-  return { isDuplicate, isWarning, dedupeKey, payloadHash };
+  return { isDuplicate, isWarning, isSuppressed, dedupeKey, payloadHash };
 }
 
 /**

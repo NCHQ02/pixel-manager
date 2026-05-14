@@ -6,6 +6,7 @@ import { parseTikTokRequest } from "../src/background/parsers/tiktok.js";
 import { parseGoogleRequest } from "../src/background/parsers/google.js";
 import { CaptureEngine } from "../src/background/capture.js";
 import {
+  clearFingerprints,
   sanitizeCapturedData,
   sanitizeCapturedUrl,
 } from "../src/background/utils.js";
@@ -30,6 +31,7 @@ function createDataLayerHarness(settings = DEFAULT_SETTINGS) {
   };
   const sentRuntimeMessages = [];
   const sentTabMessages = [];
+  const sentActionCalls = [];
   const engine = new CaptureEngine({
     chromeApi: {
       runtime: {
@@ -42,12 +44,29 @@ function createDataLayerHarness(settings = DEFAULT_SETTINGS) {
           sentTabMessages.push({ tabId, message });
         },
       },
+      action: {
+        async setBadgeBackgroundColor(payload) {
+          sentActionCalls.push({ method: "setBadgeBackgroundColor", payload });
+        },
+        async setBadgeText(payload) {
+          sentActionCalls.push({ method: "setBadgeText", payload });
+        },
+        async setTitle(payload) {
+          sentActionCalls.push({ method: "setTitle", payload });
+        },
+      },
     },
     repository,
     sessionManager,
     getSettings: () => settings,
   });
-  return { engine, repository, sentRuntimeMessages, sentTabMessages };
+  return {
+    engine,
+    repository,
+    sentRuntimeMessages,
+    sentTabMessages,
+    sentActionCalls,
+  };
 }
 
 test("parses Meta Purchase fixture", () => {
@@ -273,7 +292,7 @@ test("parses DoubleClick-routed GA4 collect endpoint", () => {
 });
 
 test("persists GA4 network events captured from analytics.google.com", async () => {
-  const { engine, repository } = createDataLayerHarness();
+  const { engine, repository, sentActionCalls } = createDataLayerHarness();
 
   await engine.handleNetworkRequest({
     tabId: 1,
@@ -288,6 +307,94 @@ test("persists GA4 network events captured from analytics.google.com", async () 
   assert.equal(events[0].platform, "GA4");
   assert.equal(events[0].eventName, "scroll");
   assert.equal(events[0].source, "network");
+  assert.deepEqual(
+    sentActionCalls.find((call) => call.method === "setBadgeText")?.payload,
+    { tabId: 1, text: "1" },
+  );
+});
+
+test("does not flag rapid Meta events with different payloads as duplicates", async () => {
+  clearFingerprints("11");
+  const { engine, repository } = createDataLayerHarness();
+
+  await engine.handleNetworkRequest({
+    tabId: 11,
+    method: "GET",
+    url: "https://www.facebook.com/tr/?id=781185679583502&ev=ShopeeShop&dl=https%3A%2F%2Fshop.test%2Fone&cd%5Bcontent_name%5D=one",
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/",
+  });
+  await engine.handleNetworkRequest({
+    tabId: 11,
+    method: "GET",
+    url: "https://www.facebook.com/tr/?id=781185679583502&ev=ShopeeShop&dl=https%3A%2F%2Fshop.test%2Ftwo&cd%5Bcontent_name%5D=two",
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/",
+  });
+
+  const events = await repository.getEventsByTab("11");
+  assert.equal(events.length, 2);
+  assert.deepEqual(
+    events.map((event) => [event.status, event.duplicateCount]),
+    [
+      ["valid", 0],
+      ["valid", 0],
+    ],
+  );
+});
+
+test("suppresses Meta GET/POST transport mirror without duplicate badge", async () => {
+  clearFingerprints("12");
+  const { engine, repository } = createDataLayerHarness();
+  const url =
+    "https://www.facebook.com/tr/?id=781185679583502&ev=PageView&dl=https%3A%2F%2Fshop.test%2F&r=stable&rqm=GET";
+  const postUrl = url.replace("rqm=GET", "rqm=POST");
+
+  await engine.handleNetworkRequest({
+    tabId: 12,
+    method: "GET",
+    url,
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/",
+  });
+  await engine.handleNetworkRequest({
+    tabId: 12,
+    method: "POST",
+    url: postUrl,
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/",
+  });
+
+  const events = await repository.getEventsByTab("12");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventName, "PageView");
+  assert.equal(events[0].status, "valid");
+  assert.equal(events[0].duplicateCount, 0);
+});
+
+test("keeps Meta event_id duplicate evidence when the same id repeats", async () => {
+  clearFingerprints("13");
+  const { engine, repository } = createDataLayerHarness();
+
+  await engine.handleNetworkRequest({
+    tabId: 13,
+    method: "GET",
+    url: "https://www.facebook.com/tr/?id=781185679583502&ev=Purchase&eid=evt-1&dl=https%3A%2F%2Fshop.test%2Fthank-you&cd%5Bvalue%5D=99&cd%5Bcurrency%5D=USD",
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/thank-you",
+  });
+  await engine.handleNetworkRequest({
+    tabId: 13,
+    method: "POST",
+    url: "https://www.facebook.com/tr/?id=781185679583502&ev=Purchase&eid=evt-1&dl=https%3A%2F%2Fshop.test%2Fthank-you&cd%5Bvalue%5D=99&cd%5Bcurrency%5D=USD",
+    initiator: "https://shop.test",
+    documentUrl: "https://shop.test/thank-you",
+  });
+
+  const events = await repository.getEventsByTab("13");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].status, "duplicate");
+  assert.equal(events[0].duplicateCount, 1);
 });
 
 test("parses Google Ads conversion fixture", () => {

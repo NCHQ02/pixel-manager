@@ -5,23 +5,40 @@ import { AuditSessionManager } from "../src/background/session.js";
 import { createMemoryEventRepository } from "../src/shared/event-repository.js";
 
 function createMockChrome(options = {}) {
-  const sessionData = {};
+  const sessionData = options.sessionData || {};
+  const localData = options.localData || {};
   const executed = [];
   const sentMessages = [];
+  const getStorageResult = (data, keys) => {
+    if (!keys) return { ...data };
+    const keyList = Array.isArray(keys) ? keys : [keys];
+    const result = {};
+    keyList.forEach((key) => {
+      result[key] = data[key];
+    });
+    return result;
+  };
   return {
     __executed: executed,
     __sentMessages: sentMessages,
+    __sessionData: sessionData,
+    __localData: localData,
     storage: {
       session: {
         get(keys, cb) {
-          const result = {};
-          keys.forEach((key) => {
-            result[key] = sessionData[key];
-          });
-          cb(result);
+          cb(getStorageResult(sessionData, keys));
         },
         set(value, cb) {
           Object.assign(sessionData, value);
+          cb?.();
+        },
+      },
+      local: {
+        get(keys, cb) {
+          cb(getStorageResult(localData, keys));
+        },
+        set(value, cb) {
+          Object.assign(localData, value);
           cb?.();
         },
       },
@@ -283,6 +300,41 @@ test("new audit run clears only the current tab event scope", async () => {
   assert.equal((await repository.getEventsByTab("8")).length, 1);
 });
 
+test("resume audit without reload preserves existing tab events after restart", async () => {
+  const localData = {};
+  const firstChrome = createMockChrome({ localData });
+  const repository = createMemoryEventRepository();
+  const manager = new AuditSessionManager({
+    chromeApi: firstChrome,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await manager.hydrate();
+  const context = await manager.enableAuditingForTab(
+    { id: 7, url: "https://shop.test/", status: "complete" },
+    { createNewRun: true },
+  );
+  await repository.addEvent({ ...event, auditRunId: context.auditRunId });
+
+  const restartedChrome = createMockChrome({ localData });
+  const restartedManager = new AuditSessionManager({
+    chromeApi: restartedChrome,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await restartedManager.hydrate();
+  const resumedContext = await restartedManager.enableAuditingForTab(
+    { id: 7, url: "https://shop.test/", status: "complete" },
+    { resumeExistingEvents: true },
+  );
+
+  const events = await repository.getEventsByTab("7");
+  assert.equal(restartedManager.isAuditedTab(7), true);
+  assert.equal(resumedContext.auditRunId, context.auditRunId);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].id, "evt-1");
+});
+
 test("activation reports network-only mode when main-world injection fails", async () => {
   const chromeApi = createMockChrome({ failMainWorld: true });
   const repository = createMemoryEventRepository();
@@ -304,7 +356,7 @@ test("activation reports network-only mode when main-world injection fails", asy
   assert.match(context.activationWarnings[0], /main world blocked/);
 });
 
-test("clearAuditState clears active tabs, run id, and deactivates overlays", async () => {
+test("clearAuditState clears active tabs, run id, and deactivates content scripts", async () => {
   const chromeApi = createMockChrome();
   const repository = createMemoryEventRepository();
   const clearedFingerprints = [];
@@ -320,11 +372,12 @@ test("clearAuditState clears active tabs, run id, and deactivates overlays", asy
     { createNewRun: true },
   );
   clearedFingerprints.length = 0;
-  await manager.clearAuditState();
+  const clearedTabIds = await manager.clearAuditState();
 
   const state = await manager.getStateResponse();
   assert.deepEqual(state.auditTabs, {});
   assert.equal(state.activeAuditRunId, null);
+  assert.deepEqual(clearedTabIds, [7]);
   assert.deepEqual(clearedFingerprints, ["7"]);
   assert.deepEqual(chromeApi.__sentMessages, [
     { tabId: 7, message: { type: "AUDIT_DEACTIVATED" } },

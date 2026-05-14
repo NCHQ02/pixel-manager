@@ -27,7 +27,11 @@ export function registerRuntimeMessages({
     if (message.type === MESSAGE_TYPES.OPEN_DASHBOARD) {
       (async () => {
         await ready;
-        if (sender.tab) await sessionManager.enableAuditingForTab(sender.tab);
+        if (sender.tab) {
+          await sessionManager.enableAuditingForTab(sender.tab, {
+            resumeExistingEvents: true,
+          });
+        }
         openDashboard(chromeApi);
       })();
     }
@@ -55,7 +59,8 @@ export function registerRuntimeMessages({
         }
 
         const context = await sessionManager.enableAuditingForTab(tab, {
-          createNewRun: true,
+          createNewRun: !!message.reload,
+          resumeExistingEvents: !message.reload,
           reload: !!message.reload,
           reloadMode: message.reload ? "reload" : "none",
         });
@@ -69,6 +74,7 @@ export function registerRuntimeMessages({
           return;
         }
         await captureEngine.notifyEventsChanged(tab.id);
+        await captureEngine.notifyBadge(tab.id);
         sendResponse({
           ok: true,
           tabId: String(tab.id),
@@ -83,7 +89,11 @@ export function registerRuntimeMessages({
     if (message.type === MESSAGE_TYPES.CLEAR_AUDIT_STATE) {
       (async () => {
         await ready;
-        await sessionManager.clearAuditState();
+        const clearedTabIds = await sessionManager.clearAuditState();
+        await Promise.all(
+          clearedTabIds.map((tabId) => captureEngine.clearBadge(tabId)),
+        );
+        await captureEngine.clearBadge();
         await captureEngine.notifyEventsChanged();
         sendResponse({ ok: true });
       })();

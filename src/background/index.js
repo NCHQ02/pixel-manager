@@ -22,6 +22,31 @@ const captureEngine = new CaptureEngine({
   getSettings: () => runtimeSettings,
 });
 
+async function restoreAuditedTabs() {
+  const tabIds = sessionManager.getAuditedTabIds();
+  await Promise.all(
+    tabIds.map(async (tabId) => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        const context = await sessionManager.enableAuditingForTab(tab, {
+          createNewRun: false,
+          clearExistingEvents: false,
+          resumeExistingEvents: true,
+        });
+        if (!context) {
+          await sessionManager.handleTabRemoved(tabId);
+          await captureEngine.clearBadge(tabId);
+          return;
+        }
+        await captureEngine.notifyBadge(tabId);
+      } catch (_e) {
+        await sessionManager.handleTabRemoved(tabId);
+        await captureEngine.clearBadge(tabId);
+      }
+    }),
+  );
+}
+
 chrome.storage.local.get(["settings"], (res) => {
   runtimeSettings = normalizeSettings(res.settings);
 });
@@ -36,6 +61,7 @@ const ready = eventRepository
   .init()
   .then(() => eventRepository.migrateLegacyStorage(chrome.storage.local))
   .then(() => sessionManager.hydrate())
+  .then(() => restoreAuditedTabs())
   .catch((err) => {
     console.error("[OmniSignal] Background initialization failed:", err);
     throw err;
@@ -58,8 +84,11 @@ chrome.webRequest.onBeforeRequest.addListener(
 
 chrome.action.onClicked.addListener(async (tab) => {
   await ready;
-  await sessionManager.enableAuditingForTab(tab, { createNewRun: true });
+  await sessionManager.enableAuditingForTab(tab, {
+    resumeExistingEvents: true,
+  });
   await captureEngine.notifyEventsChanged(tab.id);
+  await captureEngine.notifyBadge(tab.id);
   openDashboard(chrome);
 });
 
@@ -72,13 +101,16 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     );
     if (cleared) {
       await captureEngine.notifyEventsChanged(details.tabId);
-      await captureEngine.notifyOverlay(details.tabId);
+      await captureEngine.notifyBadge(details.tabId);
     }
   });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  ready.then(() => sessionManager.handleTabRemoved(tabId));
+  ready.then(async () => {
+    await sessionManager.handleTabRemoved(tabId);
+    await captureEngine.clearBadge(tabId);
+  });
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -87,7 +119,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       const cleared = await sessionManager.handleTabLoading(tabId, tab);
       if (cleared) {
         await captureEngine.notifyEventsChanged(tabId);
-        await captureEngine.notifyOverlay(tabId);
+        await captureEngine.notifyBadge(tabId);
       }
     });
   }

@@ -22,10 +22,23 @@ async function safeRuntimeSend(chromeApi, message) {
   } catch (_e) {}
 }
 
-async function safeTabSend(chromeApi, tabId, message) {
+async function safeActionCall(chromeApi, method, payload) {
   try {
-    await chromeApi.tabs.sendMessage(tabId, message);
+    await chromeApi.action?.[method]?.(payload);
   } catch (_e) {}
+}
+
+const ACTION_BADGE_COLOR = "#6366F1";
+const ACTION_TITLE = "OmniSignal Pixel Tracker";
+
+function buildBadgeText(count) {
+  if (!count) return "";
+  return count > 99 ? "99+" : String(count);
+}
+
+function normalizeActionTabId(tabId) {
+  const normalized = Number(tabId);
+  return Number.isFinite(normalized) && normalized >= 0 ? normalized : null;
 }
 
 function isNumericKeyArrayLike(item) {
@@ -71,21 +84,45 @@ export class CaptureEngine {
     });
   }
 
-  async notifyOverlay(tabId) {
-    if (Number(tabId) < 0) return;
+  async notifyBadge(tabId) {
+    const normalizedTabId = normalizeActionTabId(tabId);
+    if (normalizedTabId === null) return;
     const eventCount = await this.repository.countEventsForTab(String(tabId), {
       includeDiagnostics: false,
     });
-    await safeTabSend(this.chrome, Number(tabId), {
-      type: MESSAGE_TYPES.PIXEL_EVENT_CAPTURED,
-      eventCount,
+    const text = buildBadgeText(eventCount);
+    await safeActionCall(this.chrome, "setBadgeBackgroundColor", {
+      color: ACTION_BADGE_COLOR,
+    });
+    await safeActionCall(this.chrome, "setBadgeText", {
+      tabId: normalizedTabId,
+      text,
+    });
+    await safeActionCall(this.chrome, "setTitle", {
+      tabId: normalizedTabId,
+      title: eventCount
+        ? `${ACTION_TITLE} - ${eventCount} event(s) captured`
+        : ACTION_TITLE,
+    });
+  }
+
+  async clearBadge(tabId = null) {
+    const normalizedTabId = normalizeActionTabId(tabId);
+    const target = normalizedTabId === null ? {} : { tabId: normalizedTabId };
+    await safeActionCall(this.chrome, "setBadgeText", {
+      ...target,
+      text: "",
+    });
+    await safeActionCall(this.chrome, "setTitle", {
+      ...target,
+      title: ACTION_TITLE,
     });
   }
 
   async persistEvent(eventRecord, maxEvents) {
     await this.repository.addEvent(eventRecord, { maxEvents });
     await this.notifyEventsChanged(eventRecord.tabId);
-    await this.notifyOverlay(eventRecord.tabId);
+    await this.notifyBadge(eventRecord.tabId);
   }
 
   async persistEvents(eventRecords, maxEvents) {
@@ -93,14 +130,14 @@ export class CaptureEngine {
     if (records.length === 0) return;
     await this.repository.addEvents(records, { maxEvents });
     await this.notifyEventsChanged(records[0].tabId);
-    await this.notifyOverlay(records[0].tabId);
+    await this.notifyBadge(records[0].tabId);
   }
 
   async persistDuplicate(match, eventData) {
     const updated = await this.repository.incrementDuplicateEvent(match, eventData);
     if (!updated) return;
     await this.notifyEventsChanged(updated.tabId);
-    await this.notifyOverlay(updated.tabId);
+    await this.notifyBadge(updated.tabId);
   }
 
   async handleDataLayerMessage(message, sender) {
@@ -133,7 +170,7 @@ export class CaptureEngine {
       if (isDiag && !settings.captureDiagnostics) continue;
 
       const sanitizedItem = sanitizeCapturedData(item);
-      const { isDuplicate, isWarning, dedupeKey, payloadHash } =
+      const { isDuplicate, isWarning, isSuppressed, dedupeKey, payloadHash } =
         checkDeduplication(
           tabId,
           "DataLayer",
@@ -143,6 +180,8 @@ export class CaptureEngine {
           "DOM",
           settings.duplicateWindow,
         );
+
+      if (isSuppressed) continue;
 
       if (isDuplicate) {
         await this.persistDuplicate(
@@ -276,7 +315,7 @@ export class CaptureEngine {
         if (parsed.isDiagnostic && !settings.captureDiagnostics) continue;
 
         const eventData = sanitizeCapturedData(parsed.eventData);
-        const { isDuplicate, isWarning, dedupeKey, payloadHash } =
+        const { isDuplicate, isWarning, isSuppressed, dedupeKey, payloadHash } =
           checkDeduplication(
             tabId,
             parsed.platform,
@@ -286,6 +325,8 @@ export class CaptureEngine {
             details.method,
             settings.duplicateWindow,
           );
+
+        if (isSuppressed) continue;
 
         if (isDuplicate) {
           await this.persistDuplicate(

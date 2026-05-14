@@ -5,19 +5,32 @@ import { sanitizeCapturedUrl } from "./utils.js";
 
 const LOADING_EVENT_RACE_GRACE_MS = 500;
 const NAVIGATION_CLEAR_SUPPRESS_LOADING_MS = 10000;
+const AUDIT_SESSION_BACKUP_KEY = "auditSessionBackup";
 
 function getStorageSession(chromeApi) {
   return chromeApi.storage.session;
 }
 
+function getStorageLocal(chromeApi) {
+  return chromeApi.storage.local;
+}
+
 function storageGet(storageArea, keys) {
   return new Promise((resolve) => {
+    if (!storageArea?.get) {
+      resolve({});
+      return;
+    }
     storageArea.get(keys, (res) => resolve(res || {}));
   });
 }
 
 function storageSet(storageArea, value) {
   return new Promise((resolve) => {
+    if (!storageArea?.set) {
+      resolve();
+      return;
+    }
     storageArea.set(value, () => resolve());
   });
 }
@@ -99,14 +112,35 @@ export class AuditSessionManager {
       "auditTabs",
       "activeAuditRunId",
     ]);
+    if (res.auditTabs || res.activeAuditRunId) {
+      return {
+        auditTabs: res.auditTabs || {},
+        activeAuditRunId: res.activeAuditRunId || null,
+      };
+    }
+
+    const backup = await storageGet(getStorageLocal(this.chrome), [
+      AUDIT_SESSION_BACKUP_KEY,
+    ]);
+    const backupState = backup[AUDIT_SESSION_BACKUP_KEY] || {};
     return {
-      auditTabs: res.auditTabs || {},
-      activeAuditRunId: res.activeAuditRunId || null,
+      auditTabs: backupState.auditTabs || {},
+      activeAuditRunId: backupState.activeAuditRunId || null,
     };
   }
 
   async setSessionState(state) {
-    await storageSet(getStorageSession(this.chrome), state);
+    const normalizedState = {
+      auditTabs: state.auditTabs || {},
+      activeAuditRunId: state.activeAuditRunId || null,
+    };
+    await storageSet(getStorageSession(this.chrome), normalizedState);
+    await storageSet(getStorageLocal(this.chrome), {
+      [AUDIT_SESSION_BACKUP_KEY]: {
+        ...normalizedState,
+        updatedAt: Date.now(),
+      },
+    });
   }
 
   isAuditedTab(tabId) {
@@ -119,6 +153,10 @@ export class AuditSessionManager {
 
   getActiveRunId() {
     return this.activeAuditRunId;
+  }
+
+  getAuditedTabIds() {
+    return [...this.auditedTabIds];
   }
 
   async getTargetTab() {
@@ -138,7 +176,11 @@ export class AuditSessionManager {
     }
 
     const tabKey = String(tab.id);
-    const existingContext = this.auditTabContexts[tabKey];
+    const existingContext =
+      this.auditTabContexts[tabKey] ||
+      (!options.createNewRun && options.resumeExistingEvents
+        ? await this.buildStoredContextForTab(tab)
+        : null);
     const createNewRun = options.createNewRun || !existingContext?.auditRunId;
     const startedAt = createNewRun
       ? Date.now()
@@ -205,6 +247,30 @@ export class AuditSessionManager {
     return context;
   }
 
+  async buildStoredContextForTab(tab) {
+    const tabKey = String(tab.id);
+    const events = await this.repository.getEventsByTab(tabKey);
+    const latestEvent = events.find((event) => event.auditRunId);
+    if (!latestEvent?.auditRunId) return null;
+
+    const auditRuns = await this.repository.getAuditRunsMap();
+    const auditRun = auditRuns[latestEvent.auditRunId] || {};
+    return {
+      tabId: tabKey,
+      auditRunId: latestEvent.auditRunId,
+      url: auditRun.url || sanitizeCapturedUrl(tab.url),
+      hostname: auditRun.domain || safeHostname(tab.url),
+      startedAt: auditRun.startedAt || latestEvent.timestamp || Date.now(),
+      reloadMode: auditRun.reloadMode || "none",
+      startedAfterLoad: true,
+      activationMode: "network_only",
+      contentInjected: false,
+      mainWorldInjected: false,
+      activationError: "",
+      activationWarnings: [],
+    };
+  }
+
   async injectAuditScripts(tabId) {
     let contentInjected = false;
     let mainWorldInjected = false;
@@ -264,6 +330,7 @@ export class AuditSessionManager {
     this.navigationClearTimestamps = {};
     this.loadingFallbackTimestamps = {};
     await this.setSessionState({ auditTabs: {}, activeAuditRunId: null });
+    return [...tabIds];
   }
 
   async handleTabRemoved(tabId) {

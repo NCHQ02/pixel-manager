@@ -48,7 +48,7 @@ const state = {
   selectedTabId: "all",
   isSessionView: false,
   selectedEventId: null,
-  selectedTagFilter: null,
+  selectedTagFilters: [],
   expectedPixels: {},
   expectedEvents: [],
 };
@@ -171,7 +171,9 @@ function hydrateWorkspaceState() {
   state.platformFilter = filters.platformFilter || settings.defaultPlatformFilter;
   state.statusFilter = filters.statusFilter || settings.defaultStatusFilter;
   state.selectedTabId = filters.selectedTabId || "all";
-  state.selectedTagFilter = normalizeTagFilter(filters.selectedTagFilter);
+  state.selectedTagFilters = normalizeTagFilters(
+    filters.selectedTagFilters || filters.selectedTagFilter,
+  );
   state.isSessionView =
     filters.isSessionView === undefined
       ? settings.defaultSessionView
@@ -216,13 +218,28 @@ function normalizeTagFilter(value) {
   return platform && pixelId ? { platform, pixelId } : null;
 }
 
+function normalizeTagFilters(value) {
+  const rawItems = Array.isArray(value) ? value : value ? [value] : [];
+  const seen = new Set();
+  return rawItems
+    .map(normalizeTagFilter)
+    .filter(Boolean)
+    .filter((tag) => {
+      const key = tagFilterKey(tag);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 function tagFilterKey(value) {
   const normalized = normalizeTagFilter(value);
   return normalized ? `${normalized.platform}::${normalized.pixelId}` : "";
 }
 
 function isActiveTagFilter(value) {
-  return tagFilterKey(value) === tagFilterKey(state.selectedTagFilter);
+  const key = tagFilterKey(value);
+  return state.selectedTagFilters.some((tag) => tagFilterKey(tag) === key);
 }
 
 function platformFilterAllowsTag(platformFilter, tagFilter) {
@@ -236,16 +253,19 @@ function platformFilterAllowsTag(platformFilter, tagFilter) {
   return platformFilter === tagFilter.platform;
 }
 
-function clearTagFilter({ persist = true, render = true } = {}) {
-  state.selectedTagFilter = null;
+function clearTagFilters({ persist = true, render = true } = {}) {
+  state.selectedTagFilters = [];
   if (persist) scheduleDraftSave();
   if (render) renderAll();
 }
 
-function setTagFilter(tagFilter) {
-  state.selectedTagFilter = isActiveTagFilter(tagFilter)
-    ? null
-    : normalizeTagFilter(tagFilter);
+function toggleTagFilter(tagFilter) {
+  const normalized = normalizeTagFilter(tagFilter);
+  if (!normalized) return;
+  const key = tagFilterKey(normalized);
+  state.selectedTagFilters = isActiveTagFilter(normalized)
+    ? state.selectedTagFilters.filter((tag) => tagFilterKey(tag) !== key)
+    : [...state.selectedTagFilters, normalized];
   scheduleDraftSave();
   renderAll();
 }
@@ -432,17 +452,23 @@ function renderTimeline(container, timeline) {
 function renderTagsSummary(events) {
   if (!els.tagsSummaryContainer || !els.tagsSummaryList) return;
   els.tagsSummaryList.innerHTML = "";
-  const activeTag = normalizeTagFilter(state.selectedTagFilter);
+  const activeTags = normalizeTagFilters(state.selectedTagFilters);
 
   if (els.activeTagFilter && els.clearTagFilterBtn) {
-    els.activeTagFilter.hidden = !activeTag;
-    els.activeTagFilter.textContent = activeTag
-      ? `${activeTag.platform} ${activeTag.pixelId}`
-      : "";
-    els.clearTagFilterBtn.hidden = !activeTag;
+    els.activeTagFilter.hidden = false;
+    els.activeTagFilter.textContent =
+      activeTags.length === 1
+        ? `${activeTags[0].platform} ${activeTags[0].pixelId}`
+        : activeTags.length > 1
+          ? `${activeTags.length} tags selected`
+          : "Click tags to combine filters";
+    els.clearTagFilterBtn.hidden = activeTags.length === 0;
   }
 
-  if (state.platformFilter === "Diagnostics" || (!activeTag && events.length === 0)) {
+  if (
+    state.platformFilter === "Diagnostics" ||
+    (activeTags.length === 0 && events.length === 0)
+  ) {
     els.tagsSummaryContainer.style.display = "none";
     return;
   }
@@ -461,6 +487,17 @@ function renderTagsSummary(events) {
     tagsMap.get(key).count++;
   });
 
+  activeTags.forEach((tag) => {
+    const key = `${tag.platform}:${tag.pixelId}`;
+    if (!tagsMap.has(key)) {
+      tagsMap.set(key, {
+        platform: tag.platform,
+        pixelId: tag.pixelId,
+        count: 0,
+      });
+    }
+  });
+
   tagsMap.forEach((info) => {
     const meta = getPlatformMeta(info.platform);
     const tagFilter = { platform: info.platform, pixelId: info.pixelId };
@@ -476,7 +513,7 @@ function renderTagsSummary(events) {
       ${active ? `<span class="tag-clear-indicator" aria-hidden="true">x</span>` : ""}
     `;
     button.addEventListener("click", () => {
-      setTagFilter(tagFilter);
+      toggleTagFilter(tagFilter);
     });
     els.tagsSummaryList.appendChild(button);
   });
@@ -971,9 +1008,9 @@ function buildCurrentReportModel({ filtered = false } = {}) {
           platform: state.platformFilter,
           status: state.statusFilter,
           search: state.searchQuery,
-          tag: state.selectedTagFilter
-            ? `${state.selectedTagFilter.platform} ${state.selectedTagFilter.pixelId}`
-            : "",
+          tag: state.selectedTagFilters
+            .map((tag) => `${tag.platform} ${tag.pixelId}`)
+            .join(", "),
           tab: state.selectedTabId,
         }
       : null,
@@ -1026,7 +1063,7 @@ function scheduleDraftSave() {
         statusFilter: state.statusFilter,
         selectedTabId: state.selectedTabId,
         isSessionView: state.isSessionView,
-        selectedTagFilter: state.selectedTagFilter,
+        selectedTagFilters: state.selectedTagFilters,
       },
       expectedPixels: state.expectedPixels,
       expectedEvents: state.expectedEvents,
@@ -1152,9 +1189,9 @@ els.searchInput.addEventListener("input", (event) => {
 
 els.platformFilter.addEventListener("change", (event) => {
   state.platformFilter = event.target.value;
-  if (!platformFilterAllowsTag(state.platformFilter, state.selectedTagFilter)) {
-    state.selectedTagFilter = null;
-  }
+  state.selectedTagFilters = state.selectedTagFilters.filter((tag) =>
+    platformFilterAllowsTag(state.platformFilter, tag),
+  );
   scheduleDraftSave();
   renderAll();
 });
@@ -1166,7 +1203,7 @@ els.statusFilter.addEventListener("change", (event) => {
 });
 
 els.clearTagFilterBtn?.addEventListener("click", () => {
-  clearTagFilter();
+  clearTagFilters();
 });
 
 els.tabSelector.addEventListener("change", (event) => {

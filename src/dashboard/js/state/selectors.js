@@ -62,14 +62,34 @@ export function selectEvents(store, dashboardState, options = {}) {
     );
   }
 
-  if (applyTag && dashboardState.selectedTagFilter?.pixelId) {
-    const { platform, pixelId } = dashboardState.selectedTagFilter;
-    events = events.filter(
-      (event) =>
-        event.platform === platform &&
-        String(event.pixelId || "Unknown") === pixelId,
+  const selectedTags = normalizeSelectedTags(dashboardState);
+  if (applyTag && selectedTags.length > 0) {
+    const selectedKeys = new Set(
+      selectedTags.map((tag) => tagKey(tag.platform, tag.pixelId)),
+    );
+    events = events.filter((event) =>
+      selectedKeys.has(tagKey(event.platform, event.pixelId || "Unknown")),
     );
   }
 
   return events.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function normalizeSelectedTags(dashboardState = {}) {
+  const rawTags = Array.isArray(dashboardState.selectedTagFilters)
+    ? dashboardState.selectedTagFilters
+    : dashboardState.selectedTagFilter
+      ? [dashboardState.selectedTagFilter]
+      : [];
+  return rawTags
+    .filter(Boolean)
+    .map((tag) => ({
+      platform: String(tag.platform || "").trim(),
+      pixelId: String(tag.pixelId || "").trim(),
+    }))
+    .filter((tag) => tag.platform && tag.pixelId);
+}
+
+function tagKey(platform, pixelId) {
+  return `${platform}::${String(pixelId || "Unknown")}`;
 }

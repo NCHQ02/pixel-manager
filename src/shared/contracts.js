@@ -124,7 +124,7 @@
  * @property {string} selectedTabId
  * @property {boolean} isSessionView
  * @property {?string} selectedEventId
- * @property {?{platform: string, pixelId: string}} selectedTagFilter
+ * @property {{platform: string, pixelId: string}[]} selectedTagFilters
  * @property {Record<string, string>} expectedPixels
  * @property {{platform: string, eventName: string}[]} expectedEvents
  */

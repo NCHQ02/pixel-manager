@@ -56,7 +56,7 @@ test("parser harness validates normalized ParsedSignal fields", () => {
   assert.deepEqual(signals[0].diagnostics.validationIssues, []);
 });
 
-test("tag isolation filters independently from the search query", () => {
+test("tag isolation supports multiple selected tags independently from search", () => {
   const events = [
     {
       id: "ga4",
@@ -64,6 +64,17 @@ test("tag isolation filters independently from the search query", () => {
       pixelId: "G-TEST123",
       eventName: "page_view",
       timestamp: 2,
+      isDiagnostic: false,
+      status: "valid",
+      source: "network",
+      url: "https://shop.test/",
+    },
+    {
+      id: "tiktok",
+      platform: "TikTok",
+      pixelId: "C123ABC",
+      eventName: "Pageview",
+      timestamp: 3,
       isDiagnostic: false,
       status: "valid",
       source: "network",
@@ -90,18 +101,21 @@ test("tag isolation filters independently from the search query", () => {
     platformFilter: "All",
     statusFilter: "All",
     searchQuery: "",
-    selectedTagFilter: { platform: "GA4", pixelId: "G-TEST123" },
+    selectedTagFilters: [
+      { platform: "GA4", pixelId: "G-TEST123" },
+      { platform: "TikTok", pixelId: "C123ABC" },
+    ],
   };
 
   assert.deepEqual(
     selectEvents(store, dashboardState).map((event) => event.id),
-    ["ga4"],
+    ["tiktok", "ga4"],
   );
   assert.deepEqual(
     selectEvents(store, dashboardState, { applyTag: false }).map(
       (event) => event.id,
     ),
-    ["ga4", "meta"],
+    ["tiktok", "ga4", "meta"],
   );
   assert.equal(dashboardState.searchQuery, "");
 });
