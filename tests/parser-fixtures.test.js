@@ -452,6 +452,59 @@ test("parses Google Ads 1p conversion numeric path as AW tag", () => {
   assert.equal(parsed.eventName, "Conversion (purchase_1)");
 });
 
+test("parses Google Ads conversion body params", () => {
+  const parsed = parseGoogleRequest(
+    new URL("https://www.googleadservices.com/pagead/conversion/987654321/"),
+    {
+      method: "POST",
+      requestBody: rawBody("label=purchase_1&value=15&currency_code=USD"),
+    },
+  );
+
+  assert.equal(parsed.platform, "Google Ads");
+  assert.equal(parsed.pixelId, "AW-987654321");
+  assert.equal(parsed.eventName, "Conversion (purchase_1)");
+  assert.equal(parsed.eventData.value, "15");
+});
+
+test("keeps ccm page_view pings out of Google Ads conversion parsing", () => {
+  const parsed = parseGoogleRequest(
+    new URL(
+      "https://www.google.com/ccm/collect?rcb=8&frm=0&ae=g&en=page_view&dl=https%3A%2F%2Foreosocolapie.com%2F&scrsrc=www.googletagmanager.com&rnd=550720510.1778748065&gtm=45He65c0v9248860575za200zd9248860575xea&gcs=G111&gcd=13r3v3r3r5l1&tag_exp=0~115938466~115938469",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.platform, "Diagnostics");
+  assert.equal(parsed.pixelId, "Google Tag");
+  assert.equal(parsed.eventName, "Google Tag Ping");
+  assert.equal(parsed.isDiagnostic, true);
+  assert.equal(parsed.diagnostics.ignoredAsGoogleAdsConversion, true);
+});
+
+test("parses ccm collect as Google Ads only with explicit AW conversion evidence", () => {
+  const parsed = parseGoogleRequest(
+    new URL(
+      "https://www.google.com/ccm/collect?en=conversion&send_to=AW-987654321%2Fsignup_1&value=15&currency=USD",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.platform, "Google Ads");
+  assert.equal(parsed.pixelId, "AW-987654321");
+  assert.equal(parsed.eventName, "Conversion (signup_1)");
+  assert.equal(parsed.diagnostics.endpoint, "google-ads-ccm-collect");
+});
+
+test("ignores conversion-shaped Google paths without an Ads conversion id", () => {
+  const parsed = parseGoogleRequest(
+    new URL("https://www.google.com/pagead/conversion/?label=signup_1"),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed, null);
+});
+
 test("ignores Google Ads static loader scripts", () => {
   const parsed = parseGoogleRequest(
     new URL("https://www.googleadservices.com/pagead/conversion_async.js"),

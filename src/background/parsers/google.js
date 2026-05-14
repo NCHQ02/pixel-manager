@@ -106,44 +106,8 @@ export function parseGoogleRequest(url, details) {
   }
 
   // 2. Google Ads Conversion & Remarketing
-  if (
-    (hostname.includes("google.com") ||
-      hostname.includes("googleadservices.com") ||
-      hostname.includes("googleads.g.doubleclick.net") ||
-      hostname.includes("doubleclick.net")) &&
-    (pathname.includes("/pagead/conversion") ||
-      pathname.includes("/ads/ga-audiences") ||
-      pathname.includes("/pagead/1p-conversion") ||
-      pathname.includes("/ccm/collect") ||
-      pathname.includes("/conversion"))
-  ) {
-    const eventData = {};
-    url.searchParams.forEach((value, key) => {
-      eventData[key] = value;
-    });
-
-    const conversionLabel = extractGoogleAdsLabel(eventData);
-    const pixelId = extractGoogleAdsId(pathname, eventData);
-    const isRemarketing = pathname.includes("/ads/ga-audiences");
-
-    const eventName = isRemarketing
-      ? "Remarketing"
-      : conversionLabel
-      ? `Conversion (${conversionLabel})`
-      : "Conversion";
-
-    return createParsedSignal({
-      platform: "Google Ads",
-      pixelId,
-      eventName,
-      eventData,
-      isDiagnostic: false,
-      sourceParser: "google",
-      diagnostics: {
-        endpoint: "google-ads-conversion",
-      },
-    });
-  }
+  const googleAdsSignal = parseGoogleAdsRequest(url, details);
+  if (googleAdsSignal) return googleAdsSignal;
 
   // 3. Floodlight (DV360 / CM360)
   if (
@@ -191,35 +155,218 @@ function isGa4CollectEndpoint(url) {
   );
 }
 
+function parseGoogleAdsRequest(url, details = {}) {
+  const host = String(url.hostname || "").toLowerCase();
+  const pathname = String(url.pathname || "");
+  const lowerPath = pathname.toLowerCase();
+  if (!isGoogleAdsHost(host)) return null;
+
+  const eventData = collectRequestParams(url, details);
+  const pixelId = extractGoogleAdsId(pathname, eventData);
+  const conversionLabel = extractGoogleAdsLabel(eventData);
+  const hasAdsId = pixelId !== "Unknown";
+
+  if (isGoogleAdsRemarketingEndpoint(lowerPath)) {
+    return createParsedSignal({
+      platform: "Google Ads",
+      pixelId,
+      eventName: "Remarketing",
+      eventData,
+      isDiagnostic: !hasAdsId,
+      confidence: hasAdsId ? "high" : "medium",
+      sourceParser: "google",
+      diagnostics: {
+        endpoint: "google-ads-remarketing",
+      },
+    });
+  }
+
+  if (isGoogleAdsConversionEndpoint(lowerPath)) {
+    if (!hasAdsId) return null;
+    return createGoogleAdsConversionSignal({
+      pixelId,
+      conversionLabel,
+      eventData,
+      confidence: conversionLabel ? "high" : "medium",
+      endpoint: googleAdsConversionEndpointName(lowerPath),
+    });
+  }
+
+  if (isCcmCollectEndpoint(lowerPath)) {
+    if (hasReliableCcmConversionEvidence(eventData, pixelId, conversionLabel)) {
+      return createGoogleAdsConversionSignal({
+        pixelId,
+        conversionLabel,
+        eventData,
+        confidence: conversionLabel ? "high" : "medium",
+        endpoint: "google-ads-ccm-collect",
+      });
+    }
+
+    if (isGoogleTagPing(eventData)) {
+      return createParsedSignal({
+        platform: "Diagnostics",
+        pixelId: "Google Tag",
+        eventName: "Google Tag Ping",
+        eventData,
+        isDiagnostic: true,
+        confidence: "medium",
+        sourceParser: "google",
+        diagnostics: {
+          endpoint: "google-tag-ccm-collect",
+          ignoredAsGoogleAdsConversion: true,
+        },
+      });
+    }
+  }
+
+  return null;
+}
+
+function createGoogleAdsConversionSignal({
+  pixelId,
+  conversionLabel,
+  eventData,
+  confidence,
+  endpoint,
+}) {
+  return createParsedSignal({
+    platform: "Google Ads",
+    pixelId,
+    eventName: conversionLabel
+      ? `Conversion (${conversionLabel})`
+      : "Conversion",
+    eventData,
+    isDiagnostic: false,
+    confidence,
+    sourceParser: "google",
+    diagnostics: {
+      endpoint,
+    },
+  });
+}
+
+function collectRequestParams(url, details = {}) {
+  const eventData = {};
+  mergeSearchParams(eventData, url.searchParams);
+  mergeObjectParams(eventData, parseRequestBodyParams(details));
+  return eventData;
+}
+
+function isGoogleAdsHost(host = "") {
+  return (
+    host === "google.com" ||
+    host.endsWith(".google.com") ||
+    host === "googleadservices.com" ||
+    host.endsWith(".googleadservices.com") ||
+    host === "googleads.g.doubleclick.net" ||
+    host.endsWith(".googleads.g.doubleclick.net") ||
+    host === "doubleclick.net" ||
+    host.endsWith(".doubleclick.net")
+  );
+}
+
+function isGoogleAdsConversionEndpoint(pathname = "") {
+  return (
+    /^\/pagead\/(?:1p-)?conversion(?:\/|$)/.test(pathname) ||
+    /^\/pagead\/viewthroughconversion(?:\/|$)/.test(pathname) ||
+    /^\/conversion\/(?:aw-)?\d{6,}(?:\/|$)/.test(pathname)
+  );
+}
+
+function googleAdsConversionEndpointName(pathname = "") {
+  if (pathname.includes("/pagead/1p-conversion")) {
+    return "google-ads-1p-conversion";
+  }
+  if (pathname.includes("/pagead/viewthroughconversion")) {
+    return "google-ads-viewthroughconversion";
+  }
+  return "google-ads-conversion";
+}
+
+function isGoogleAdsRemarketingEndpoint(pathname = "") {
+  return pathname.includes("/ads/ga-audiences");
+}
+
+function isCcmCollectEndpoint(pathname = "") {
+  return /^\/ccm\/collect(?:\/|$)/.test(pathname);
+}
+
+function hasReliableCcmConversionEvidence(eventData, pixelId, conversionLabel) {
+  if (pixelId === "Unknown") return false;
+  if (sendToHasGoogleAdsConversionLabel(eventData)) return true;
+  if (conversionLabel && normalizeEventName(eventData.en) === "conversion") {
+    return true;
+  }
+  return false;
+}
+
+function sendToHasGoogleAdsConversionLabel(eventData) {
+  const sendTo = String(eventData.send_to || eventData.sendTo || "");
+  return /AW-\d+\/[^/?&#,\s]+/i.test(sendTo);
+}
+
+function isGoogleTagPing(eventData = {}) {
+  return [
+    "en",
+    "gcs",
+    "gcd",
+    "gtm",
+    "dl",
+    "scrsrc",
+    "tag_exp",
+  ].some((key) => eventData[key] !== undefined && eventData[key] !== "");
+}
+
 function extractGoogleAdsLabel(eventData) {
   const sendTo = String(eventData.send_to || eventData.sendTo || "");
-  const sendToMatch = sendTo.match(/AW-\d+\/([^/?&#]+)/);
-  return eventData.lbl || eventData.label || eventData.label_id || sendToMatch?.[1] || "";
+  const sendToMatch = sendTo.match(/AW-\d+\/([^/?&#,\s]+)/i);
+  return (
+    eventData.lbl ||
+    eventData.label ||
+    eventData.label_id ||
+    eventData.google_conversion_label ||
+    sendToMatch?.[1] ||
+    ""
+  );
 }
 
 function extractGoogleAdsId(pathname, eventData) {
   const decodedPath = decodeURIComponent(pathname);
   const sendTo = String(eventData.send_to || eventData.sendTo || "");
   const explicitAw =
-    decodedPath.match(/AW-\d+/)?.[0] ||
-    sendTo.match(/AW-\d+/)?.[0] ||
-    normalizeAwId(eventData.awid || eventData.google_conversion_id);
+    decodedPath.match(/AW-\d+/i)?.[0].toUpperCase() ||
+    sendTo.match(/AW-\d+/i)?.[0].toUpperCase() ||
+    normalizeAwId(
+      eventData.awid ||
+        eventData.google_conversion_id ||
+        eventData.conversion_id ||
+        eventData.conversionId ||
+        eventData.tid,
+    );
   if (explicitAw) return explicitAw;
 
   const numericPathMatch = decodedPath.match(
-    /\/(?:pagead\/(?:1p-)?conversion|conversion)\/(\d{6,})(?:[/?]|$)/,
+    /\/(?:pagead\/(?:1p-)?conversion|pagead\/viewthroughconversion|conversion)\/(\d{6,})(?:[/?]|$)/i,
   );
   if (numericPathMatch) return `AW-${numericPathMatch[1]}`;
 
-  return eventData.sst_id || "Unknown";
+  return "Unknown";
 }
 
 function normalizeAwId(value) {
   if (!value) return "";
   const raw = String(value);
-  if (/^AW-\d+$/.test(raw)) return raw;
+  if (/^AW-\d+$/i.test(raw)) return raw.toUpperCase();
   if (/^\d{6,}$/.test(raw)) return `AW-${raw}`;
   return "";
+}
+
+function normalizeEventName(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function mergeSearchParams(target, searchParams) {

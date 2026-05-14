@@ -457,6 +457,45 @@ test("does not warn for alternate Google Ads label parameter names", () => {
   assert.equal(checklist[0].status, "valid");
 });
 
+test("requires Google Ads conversion label while accepting legacy aliases", () => {
+  const missingLabel = buildChecklist(
+    [
+      {
+        platform: "Google Ads",
+        pixelId: "AW-123",
+        eventName: "Conversion",
+        eventData: { value: "1", currency_code: "USD" },
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "Google Ads", eventName: "Conversion" }],
+  );
+  const legacyAlias = buildChecklist(
+    [
+      {
+        platform: "Google Ads",
+        pixelId: "AW-123",
+        eventName: "Conversion",
+        eventData: {
+          google_conversion_label: "lead_a",
+          google_conversion_value: "1",
+          google_conversion_currency: "USD",
+        },
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "Google Ads", eventName: "Conversion" }],
+  );
+
+  assert.equal(missingLabel[0].status, "missing_params");
+  assert.ok(
+    missingLabel[0].issues.some((issue) =>
+      issue.includes("eventData.label|eventData.lbl"),
+    ),
+  );
+  assert.equal(legacyAlias[0].status, "valid");
+});
+
 test("groups duplicate and expected-event issues", () => {
   const issues = buildIssues(
     [

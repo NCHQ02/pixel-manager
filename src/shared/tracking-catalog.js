@@ -225,7 +225,12 @@ export const PLATFORM_DEFINITIONS = Object.freeze({
     parser: "google",
     family: "google",
     expectedIdPattern: /^(AW-\d+|Unknown)$/i,
-    endpointHints: ["pagead/conversion", "1p-conversion", "ccm/collect"],
+    endpointHints: [
+      "pagead/conversion",
+      "pagead/1p-conversion",
+      "pagead/viewthroughconversion",
+      "ads/ga-audiences",
+    ],
     diagnosticEventKeys: new Set(),
   },
   Floodlight: {
@@ -391,11 +396,13 @@ const BASE_AUDIT_RULES = [
   {
     platform: "Google Ads",
     eventName: "Conversion",
-    requiredParams: ["pixelId"],
+    requiredParams: [
+      "pixelId",
+      "eventData.label|eventData.lbl|eventData.label_id|eventData.google_conversion_label",
+    ],
     recommendedParams: [
-      "eventData.label|eventData.lbl",
-      "eventData.value|eventData.val",
-      "eventData.currency_code|eventData.currency|eventData.cu",
+      "eventData.value|eventData.val|eventData.google_conversion_value",
+      "eventData.currency_code|eventData.currency|eventData.cu|eventData.google_conversion_currency",
     ],
     matchMode: "prefix",
   },
