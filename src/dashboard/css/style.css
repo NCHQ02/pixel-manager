@@ -160,16 +160,11 @@ button {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 42px;
   height: 42px;
-  border-radius: 999px;
-  background: var(--colors-ink);
-  color: white;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
+  object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .brand-info h1 {

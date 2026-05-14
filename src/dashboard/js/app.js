@@ -583,7 +583,7 @@ function renderReportPreview(reportModel) {
     <div class="report-preview-cover">
       <div>
         <div class="brand">
-          <span class="brand-mark">OS</span>
+          <img class="brand-mark" src="../../logo.png" alt="" />
           <div>
             <strong>OmniSignal Audit Report</strong>
             <p class="caption">Client / Dev Artifact</p>
