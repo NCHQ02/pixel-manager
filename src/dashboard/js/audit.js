@@ -574,7 +574,10 @@ export function buildTimeline(events, expectedEvents = []) {
     const matches = events
       .filter((event) => timelineMatches(event, step))
       .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-    const first = matches[0] || null;
+    const first =
+      matches.find((event) => !lastObservedAt || event.timestamp >= lastObservedAt) ||
+      matches[0] ||
+      null;
     const duplicateCount = matches.reduce(
       (total, event) => total + (event.duplicateCount || 0),
       0,

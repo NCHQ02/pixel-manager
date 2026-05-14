@@ -106,6 +106,21 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   });
 });
 
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId !== 0) return;
+  ready.then(async () => {
+    const cleared = await sessionManager.handleNavigationCommitted(
+      details.tabId,
+      details.url,
+      details.timeStamp,
+    );
+    if (cleared) {
+      await captureEngine.notifyEventsChanged(details.tabId);
+      await captureEngine.notifyBadge(details.tabId);
+    }
+  });
+});
+
 chrome.tabs.onRemoved.addListener((tabId) => {
   ready.then(async () => {
     await sessionManager.handleTabRemoved(tabId);
@@ -114,6 +129,20 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url) {
+    ready.then(async () => {
+      const cleared = await sessionManager.handleNavigationCommitted(
+        tabId,
+        changeInfo.url,
+        Date.now(),
+      );
+      if (cleared) {
+        await captureEngine.notifyEventsChanged(tabId);
+        await captureEngine.notifyBadge(tabId);
+      }
+    });
+  }
+
   if (changeInfo.status === "loading") {
     ready.then(async () => {
       const cleared = await sessionManager.handleTabLoading(tabId, tab);

@@ -62,6 +62,43 @@ function normalizeDataLayerItem(item) {
   return normalized;
 }
 
+function extractFloodlightFromDataLayerItem(item) {
+  const isGtagEvent =
+    Array.isArray(item) &&
+    item[0] === "event" &&
+    typeof item[1] === "string";
+  const isObjectEvent =
+    item &&
+    typeof item === "object" &&
+    !Array.isArray(item) &&
+    typeof item.event === "string";
+  const eventName = isGtagEvent ? item[1] : isObjectEvent ? item.event : "";
+  if (String(eventName).toLowerCase() !== "conversion") return null;
+
+  const params =
+    (isGtagEvent && item[2] && typeof item[2] === "object"
+      ? item[2]
+      : null) ||
+    (isObjectEvent ? item : null);
+  const sendTo = String(params?.send_to || params?.sendTo || "").trim();
+  const match = sendTo.match(/^DC-(\d+)\/([^/]+)\/([^+/?#]+)(?:\+([^/?#]+))?/i);
+  if (!match) return null;
+
+  const [, src, type, cat, countingMethod] = match;
+  return {
+    src,
+    type,
+    cat,
+    send_to: sendTo,
+    counting_method: countingMethod || "",
+    allow_custom_scripts: params.allow_custom_scripts,
+    value: params.value,
+    currency: params.currency,
+    transaction_id: params.transaction_id,
+    event_callback: params.event_callback ? "[function]" : undefined,
+  };
+}
+
 export class CaptureEngine {
   /**
    * @param {Object} deps
@@ -201,6 +238,11 @@ export class CaptureEngine {
 
       if (isWarning) sanitizedItem._duplicateWarning = true;
 
+      const floodlightIntent = extractFloodlightFromDataLayerItem(item);
+      const sanitizedFloodlightIntent = floodlightIntent
+        ? sanitizeCapturedData(floodlightIntent)
+        : null;
+
       const eventRecord = {
         id: createEventId(index),
         tabId,
@@ -225,12 +267,83 @@ export class CaptureEngine {
         sourceParser: "datalayer",
         diagnostics: {
           isDiagnostic: isDiag,
+          floodlightIntent: sanitizedFloodlightIntent
+            ? {
+                src: sanitizedFloodlightIntent.src,
+                type: sanitizedFloodlightIntent.type,
+                cat: sanitizedFloodlightIntent.cat,
+                send_to: sanitizedFloodlightIntent.send_to,
+                counting_method: sanitizedFloodlightIntent.counting_method,
+                deliveryVerified: false,
+              }
+            : undefined,
         },
         dedupeKey,
         payloadHash,
       };
 
       eventRecords.push(eventRecord);
+
+      if (sanitizedFloodlightIntent) {
+        const floodlightEventName = `${sanitizedFloodlightIntent.type} / ${sanitizedFloodlightIntent.cat}`;
+        const floodlightDedupe = checkDeduplication(
+          tabId,
+          "Floodlight",
+          sanitizedFloodlightIntent.src,
+          floodlightEventName,
+          sanitizedFloodlightIntent,
+          "DOM",
+          settings.duplicateWindow,
+        );
+
+        if (floodlightDedupe.isDuplicate) {
+          await this.persistDuplicate(
+            {
+              tabId,
+              platform: "Floodlight",
+              pixelId: sanitizedFloodlightIntent.src,
+              eventName: floodlightEventName,
+              method: "DOM",
+              dedupeKey: floodlightDedupe.dedupeKey,
+              payloadHash: floodlightDedupe.payloadHash,
+            },
+            sanitizedFloodlightIntent,
+          );
+        } else if (!floodlightDedupe.isSuppressed) {
+          eventRecords.push({
+            id: createEventId(`floodlight-dom-${index}`),
+            tabId,
+            platform: "Floodlight",
+            pixelId: sanitizedFloodlightIntent.src,
+            eventName: floodlightEventName,
+            eventData: {
+              ...sanitizedFloodlightIntent,
+              _networkUnverified: true,
+            },
+            url: sender.tab ? sanitizeCapturedUrl(sender.tab.url) : "",
+            method: "DOM",
+            timestamp: (message.data.timestamp || Date.now()) + index + 0.1,
+            status: "warning",
+            isDiagnostic: false,
+            issues: [],
+            duplicateCount: 0,
+            auditRunId:
+              this.sessionManager.getContextForTab(tabId)?.auditRunId ||
+              this.sessionManager.getActiveRunId(),
+            source: "datalayer",
+            evidenceSource: EVIDENCE_SOURCES.LOCAL_DATALAYER,
+            parserSchemaVersion: PARSER_SCHEMA_VERSION,
+            confidence: "medium",
+            sourceParser: "datalayer-floodlight",
+            diagnostics: {
+              derivedFrom: "gtag conversion send_to",
+              deliveryVerified: false,
+            },
+            dedupeKey: floodlightDedupe.dedupeKey,
+            payloadHash: floodlightDedupe.payloadHash,
+          });
+        }
+      }
     }
     await this.persistEvents(
       eventRecords,

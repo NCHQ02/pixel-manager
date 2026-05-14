@@ -49,6 +49,7 @@ const state = {
   isSessionView: false,
   selectedEventId: null,
   selectedTagFilters: [],
+  selectedTimelineFilter: null,
   expectedPixels: {},
   expectedEvents: [],
 };
@@ -91,6 +92,8 @@ const els = {
   qaStepper: document.getElementById("qa-stepper"),
   overviewTimeline: document.getElementById("overview-timeline"),
   liveTimeline: document.getElementById("live-timeline"),
+  activeTimelineFilter: document.getElementById("active-timeline-filter"),
+  clearTimelineFilterBtn: document.getElementById("clear-timeline-filter-btn"),
   tagsSummaryContainer: document.getElementById("tags-summary-container"),
   tagsSummaryList: document.getElementById("tags-summary-list"),
   activeTagFilter: document.getElementById("active-tag-filter"),
@@ -171,9 +174,7 @@ function hydrateWorkspaceState() {
   state.platformFilter = filters.platformFilter || settings.defaultPlatformFilter;
   state.statusFilter = filters.statusFilter || settings.defaultStatusFilter;
   state.selectedTabId = filters.selectedTabId || "all";
-  state.selectedTagFilters = normalizeTagFilters(
-    filters.selectedTagFilters || filters.selectedTagFilter,
-  );
+  resetLiveIsolationFilters();
   state.isSessionView =
     filters.isSessionView === undefined
       ? settings.defaultSessionView
@@ -242,6 +243,23 @@ function isActiveTagFilter(value) {
   return state.selectedTagFilters.some((tag) => tagFilterKey(tag) === key);
 }
 
+function normalizeTimelineFilter(value) {
+  if (!value || typeof value !== "object") return null;
+  const platform = String(value.platform || "Any").trim() || "Any";
+  const eventName = String(value.eventName || "").trim();
+  return eventName ? { platform, eventName } : null;
+}
+
+function timelineFilterKey(value) {
+  const normalized = normalizeTimelineFilter(value);
+  return normalized ? `${normalized.platform}::${normalized.eventName}` : "";
+}
+
+function isActiveTimelineFilter(value) {
+  const key = timelineFilterKey(value);
+  return !!key && timelineFilterKey(state.selectedTimelineFilter) === key;
+}
+
 function platformFilterAllowsTag(platformFilter, tagFilter) {
   if (!tagFilter) return true;
   if (platformFilter === "All") return true;
@@ -253,10 +271,32 @@ function platformFilterAllowsTag(platformFilter, tagFilter) {
   return platformFilter === tagFilter.platform;
 }
 
+function platformFilterAllowsTimeline(platformFilter, timelineFilter) {
+  if (!timelineFilter || timelineFilter.platform === "Any") return true;
+  if (platformFilter === "All") return true;
+  if (platformFilter === "Google") {
+    return ["GA4", "Google Ads", "Floodlight", "DataLayer"].includes(
+      timelineFilter.platform,
+    );
+  }
+  return platformFilter === timelineFilter.platform;
+}
+
 function clearTagFilters({ persist = true, render = true } = {}) {
   state.selectedTagFilters = [];
   if (persist) scheduleDraftSave();
   if (render) renderAll();
+}
+
+function clearTimelineFilters({ persist = true, render = true } = {}) {
+  state.selectedTimelineFilter = null;
+  if (persist) scheduleDraftSave();
+  if (render) renderAll();
+}
+
+function resetLiveIsolationFilters() {
+  state.selectedTagFilters = [];
+  state.selectedTimelineFilter = null;
 }
 
 function toggleTagFilter(tagFilter) {
@@ -268,6 +308,16 @@ function toggleTagFilter(tagFilter) {
     : [...state.selectedTagFilters, normalized];
   scheduleDraftSave();
   renderAll();
+}
+
+function toggleTimelineFilter(timelineFilter, { render = true } = {}) {
+  const normalized = normalizeTimelineFilter(timelineFilter);
+  if (!normalized) return;
+  const key = timelineFilterKey(normalized);
+  state.selectedTimelineFilter =
+    timelineFilterKey(state.selectedTimelineFilter) === key ? null : normalized;
+  scheduleDraftSave();
+  if (render) renderAll();
 }
 
 function shouldKeepDiagnosticForAnalysis(event, includeDiagnostics = false) {
@@ -282,6 +332,7 @@ function getAnalysisEvents({ filtered = false, includeDiagnostics = false } = {}
         applyStatus: false,
         applySearch: false,
         applyTag: false,
+        applyTimeline: false,
         includeDiagnostics: true,
       });
   return events.filter((event) =>
@@ -306,6 +357,7 @@ function renderAll() {
   renderOverview(reportModel);
   renderTimeline(els.overviewTimeline, reportModel.timeline);
   renderTimeline(els.liveTimeline, reportModel.timeline);
+  renderTimelineFilterState();
   renderTagsSummary(tagSummaryEvents);
   renderExpectations();
   renderChecklist(reportModel.checklist);
@@ -427,6 +479,11 @@ function renderOverview(reportModel) {
 function renderTimeline(container, timeline) {
   container.innerHTML = timeline
     .map((step) => {
+      const timelineFilter = {
+        platform: step.platform || "Any",
+        eventName: step.eventName,
+      };
+      const active = isActiveTimelineFilter(timelineFilter);
       const label =
         step.status === "missing"
           ? "Missing"
@@ -438,7 +495,7 @@ function renderTimeline(container, timeline) {
         : "";
       const tag = step.platform === "Any" ? "Funnel" : step.platform;
       return `
-        <button class="timeline-step ${escapeHtml(step.status)}" data-event-id="${escapeHtml(step.eventId || "")}" data-event-name="${escapeHtml(step.eventName)}" type="button">
+        <button class="timeline-step ${escapeHtml(step.status)}${active ? " active" : ""}" data-event-id="${escapeHtml(step.eventId || "")}" data-platform="${escapeHtml(step.platform || "Any")}" data-event-name="${escapeHtml(step.eventName)}" type="button" aria-pressed="${active ? "true" : "false"}">
           <span class="eyebrow">${escapeHtml(tag)}</span>
           <span class="timeline-title">${escapeHtml(step.label)}</span>
           <span class="status-pill status-${step.status}">${escapeHtml(label)}</span>
@@ -447,6 +504,16 @@ function renderTimeline(container, timeline) {
       `;
     })
     .join("");
+}
+
+function renderTimelineFilterState() {
+  if (!els.activeTimelineFilter || !els.clearTimelineFilterBtn) return;
+  const activeFilter = normalizeTimelineFilter(state.selectedTimelineFilter);
+  els.activeTimelineFilter.hidden = !activeFilter;
+  els.activeTimelineFilter.textContent = activeFilter
+    ? `${activeFilter.platform === "Any" ? "Funnel" : activeFilter.platform} ${activeFilter.eventName}`
+    : "";
+  els.clearTimelineFilterBtn.hidden = !activeFilter;
 }
 
 function renderTagsSummary(events) {
@@ -482,9 +549,15 @@ function renderTagsSummary(events) {
         platform: event.platform,
         pixelId: event.pixelId || "Unknown",
         count: 0,
+        seen: new Set(),
       });
     }
-    tagsMap.get(key).count++;
+    const info = tagsMap.get(key);
+    const summaryKey = tagSummaryCountKey(event);
+    if (!info.seen.has(summaryKey)) {
+      info.seen.add(summaryKey);
+      info.count++;
+    }
   });
 
   activeTags.forEach((tag) => {
@@ -494,6 +567,7 @@ function renderTagsSummary(events) {
         platform: tag.platform,
         pixelId: tag.pixelId,
         count: 0,
+        seen: new Set(),
       });
     }
   });
@@ -517,6 +591,17 @@ function renderTagsSummary(events) {
     });
     els.tagsSummaryList.appendChild(button);
   });
+}
+
+function tagSummaryCountKey(event) {
+  if (event.platform !== "Floodlight") {
+    return event.id || `${event.eventName}:${event.timestamp}`;
+  }
+  const data = event.eventData || {};
+  const activity = [data.src || event.pixelId, data.type, data.cat]
+    .filter(Boolean)
+    .join(":");
+  return activity || event.pixelId || "Floodlight";
 }
 
 function renderExpectations() {
@@ -1011,6 +1096,9 @@ function buildCurrentReportModel({ filtered = false } = {}) {
           tag: state.selectedTagFilters
             .map((tag) => `${tag.platform} ${tag.pixelId}`)
             .join(", "),
+          timeline: state.selectedTimelineFilter
+            ? `${state.selectedTimelineFilter.platform === "Any" ? "Funnel" : state.selectedTimelineFilter.platform} ${state.selectedTimelineFilter.eventName}`
+            : "",
           tab: state.selectedTabId,
         }
       : null,
@@ -1063,7 +1151,10 @@ function scheduleDraftSave() {
         statusFilter: state.statusFilter,
         selectedTabId: state.selectedTabId,
         isSessionView: state.isSessionView,
-        selectedTagFilters: state.selectedTagFilters,
+        selectedTagFilter: null,
+        selectedTagFilters: [],
+        selectedTimelineFilter: null,
+        selectedTimelineFilters: [],
       },
       expectedPixels: state.expectedPixels,
       expectedEvents: state.expectedEvents,
@@ -1192,6 +1283,9 @@ els.platformFilter.addEventListener("change", (event) => {
   state.selectedTagFilters = state.selectedTagFilters.filter((tag) =>
     platformFilterAllowsTag(state.platformFilter, tag),
   );
+  if (!platformFilterAllowsTimeline(state.platformFilter, state.selectedTimelineFilter)) {
+    state.selectedTimelineFilter = null;
+  }
   scheduleDraftSave();
   renderAll();
 });
@@ -1204,6 +1298,10 @@ els.statusFilter.addEventListener("change", (event) => {
 
 els.clearTagFilterBtn?.addEventListener("click", () => {
   clearTagFilters();
+});
+
+els.clearTimelineFilterBtn?.addEventListener("click", () => {
+  clearTimelineFilters();
 });
 
 els.tabSelector.addEventListener("change", (event) => {
@@ -1225,6 +1323,7 @@ async function startAudit(reload) {
   const button = reload ? els.startReloadBtn : els.startAuditBtn;
   const original = button.textContent;
   button.textContent = reload ? "Reloading..." : "Starting...";
+  resetLiveIsolationFilters();
   const result = await store.startAudit({ reload });
   button.textContent = original;
   if (!result?.ok) {
@@ -1241,8 +1340,13 @@ function handleTimelineClick(event) {
   const step = event.target.closest(".timeline-step");
   if (!step) return;
   const eventId = step.dataset.eventId;
-  state.searchQuery = step.dataset.eventName || "";
-  els.searchInput.value = state.searchQuery;
+  toggleTimelineFilter(
+    {
+      platform: step.dataset.platform || "Any",
+      eventName: step.dataset.eventName || "",
+    },
+    { render: false },
+  );
   setView("live");
   if (eventId) openEventDrawer(eventId);
 }
@@ -1327,6 +1431,7 @@ els.clearAllBtn.addEventListener("click", async () => {
   if (confirmed) {
     await store.clearAll();
     state.selectedEventId = null;
+    resetLiveIsolationFilters();
     closeEventDrawer();
   }
 });

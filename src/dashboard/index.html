@@ -200,10 +200,33 @@
                 <p class="eyebrow">Live Stream</p>
                 <h2 class="headline">Realtime tracking events</h2>
               </div>
-              <label class="toggle-container">
-                <input type="checkbox" id="session-view-toggle" />
-                <span class="body-sm">Session grouping</span>
-              </label>
+              <div class="section-actions live-filter-actions">
+                <span id="active-timeline-filter" class="caption" hidden></span>
+                <button
+                  id="clear-timeline-filter-btn"
+                  class="icon-button tag-filter-clear"
+                  aria-label="Clear timeline filter"
+                  title="Clear timeline filter"
+                  type="button"
+                  hidden
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+                <label class="toggle-container">
+                  <input type="checkbox" id="session-view-toggle" />
+                  <span class="body-sm">Session grouping</span>
+                </label>
+              </div>
             </div>
             <div id="live-timeline" class="timeline-strip"></div>
           </section>

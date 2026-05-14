@@ -241,9 +241,13 @@ export function checkDeduplication(
   const eventId = eventData.eid || eventData.event_id || "";
   const hasEventId = !!eventId;
   const payloadHash = generateStablePayloadHash(eventData);
+  const floodlightActivityKey =
+    platform === "Floodlight" ? buildFloodlightActivityKey(eventData) : "";
   let dedupeKey = eventId;
 
-  if (!dedupeKey || platform === "GA4" || platform === "DataLayer") {
+  if (floodlightActivityKey) {
+    dedupeKey = floodlightActivityKey;
+  } else if (!dedupeKey || platform === "GA4" || platform === "DataLayer") {
     dedupeKey = payloadHash;
   }
 
@@ -266,6 +270,13 @@ export function checkDeduplication(
         // Align with Pixel Helper by suppressing that local capture noise
         // instead of surfacing a duplicate badge.
         isSuppressed = true;
+      } else if (platform === "Floodlight" && floodlightActivityKey) {
+        // Floodlight can appear first as a DataLayer/DOM intent and later as
+        // the actual network transport. Do not let the DOM fallback block the
+        // stronger network evidence.
+        if (method === "DOM" || lastExact.method !== "DOM") {
+          isSuppressed = true;
+        }
       } else if (hasEventId || lastExact.method === method) {
         isDuplicate = true;
       }
@@ -278,6 +289,13 @@ export function checkDeduplication(
   }
 
   return { isDuplicate, isWarning, isSuppressed, dedupeKey, payloadHash };
+}
+
+function buildFloodlightActivityKey(eventData = {}) {
+  const src = String(eventData.src || "").trim();
+  const type = String(eventData.type || "").trim();
+  const cat = String(eventData.cat || "").trim();
+  return src && type && cat ? `floodlight:${src}:${type}:${cat}` : "";
 }
 
 /**

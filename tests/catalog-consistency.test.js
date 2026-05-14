@@ -120,6 +120,78 @@ test("tag isolation supports multiple selected tags independently from search", 
   assert.equal(dashboardState.searchQuery, "");
 });
 
+test("timeline card isolation uses a single filter independently from search", () => {
+  const events = [
+    {
+      id: "ga4-page-view",
+      platform: "GA4",
+      pixelId: "G-TEST123",
+      eventName: "page_view",
+      timestamp: 4,
+      isDiagnostic: false,
+      status: "valid",
+      source: "network",
+      url: "https://shop.test/",
+    },
+    {
+      id: "meta-page-view",
+      platform: "Meta",
+      pixelId: "123456",
+      eventName: "PageView",
+      timestamp: 3,
+      isDiagnostic: false,
+      status: "valid",
+      source: "network",
+      url: "https://shop.test/",
+    },
+    {
+      id: "floodlight",
+      platform: "Floodlight",
+      pixelId: "9226442",
+      eventName: "Floodlight",
+      timestamp: 2,
+      isDiagnostic: false,
+      status: "valid",
+      source: "network",
+      url: "https://shop.test/",
+    },
+    {
+      id: "tiktok-cart",
+      platform: "TikTok",
+      pixelId: "C123ABC",
+      eventName: "AddToCart",
+      timestamp: 1,
+      isDiagnostic: false,
+      status: "valid",
+      source: "network",
+      url: "https://shop.test/",
+    },
+  ];
+  const store = {
+    events: { "1": events },
+    getAllEvents: () => events,
+  };
+  const dashboardState = {
+    selectedTabId: "all",
+    platformFilter: "All",
+    statusFilter: "All",
+    searchQuery: "",
+    selectedTimelineFilter: { platform: "Floodlight", eventName: "Floodlight" },
+  };
+
+  assert.deepEqual(
+    selectEvents(store, dashboardState).map((event) => event.id),
+    ["floodlight"],
+  );
+  assert.deepEqual(
+    selectEvents(store, dashboardState, { applyTimeline: false }).map(
+      (event) => event.id,
+    ),
+    ["ga4-page-view", "meta-page-view", "floodlight", "tiktok-cart"],
+  );
+  assert.equal(dashboardState.searchQuery, "");
+});
+
 test("report model labels Hybrid Evidence and external account gap", () => {
   const reportModel = buildReportModel({
     events: [

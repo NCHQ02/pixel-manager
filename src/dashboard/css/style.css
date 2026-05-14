@@ -530,6 +530,11 @@ button.timeline-step {
   background: var(--colors-block-pink);
 }
 
+.timeline-step.active {
+  border-color: var(--colors-ink);
+  box-shadow: inset 0 0 0 1px var(--colors-ink);
+}
+
 .timeline-title {
   display: block;
   margin: 8px 0;
@@ -718,8 +723,16 @@ button.timeline-step {
   background: rgba(255, 255, 255, 0.16);
 }
 
-.tag-filter-actions {
+.tag-filter-actions,
+.live-filter-actions {
   min-height: 32px;
+}
+
+.live-filter-actions {
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .tag-filter-clear {

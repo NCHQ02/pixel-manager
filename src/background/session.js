@@ -147,6 +147,16 @@ export class AuditSessionManager {
     return this.auditedTabIds.has(Number(tabId));
   }
 
+  async hasAuditCanvasForTab(tabId) {
+    const tabKey = String(tabId);
+    if (this.auditedTabIds.has(Number(tabId)) || this.auditTabContexts[tabKey]) {
+      return true;
+    }
+    const { auditTabs } = await this.getSessionState();
+    if (auditTabs?.[tabKey]) return true;
+    return (await this.repository.getEventsByTab(tabKey)).length > 0;
+  }
+
   getContextForTab(tabId) {
     return this.auditTabContexts[String(tabId)] || null;
   }
@@ -357,7 +367,12 @@ export class AuditSessionManager {
   }
 
   async handleTabLoading(tabId, tab) {
-    if (!this.isAuditedTab(tabId) || !isAuditableUrl(tab?.url)) return false;
+    if (
+      !isAuditableUrl(tab?.url) ||
+      !(await this.hasAuditCanvasForTab(tabId))
+    ) {
+      return false;
+    }
     const tabKey = String(tabId);
     const now = Date.now();
     const lastNavigationClear = this.navigationClearTimestamps[tabKey] || 0;
@@ -382,12 +397,41 @@ export class AuditSessionManager {
   }
 
   async handleNavigationStarted(tabId, url) {
-    if (!this.isAuditedTab(tabId) || !isAuditableUrl(url)) return false;
+    if (
+      !isAuditableUrl(url) ||
+      !(await this.hasAuditCanvasForTab(tabId))
+    ) {
+      return false;
+    }
     const tabKey = String(tabId);
     const now = Date.now();
     this.navigationClearTimestamps[tabKey] = now;
     this.loadingFallbackTimestamps[tabKey] = now;
     await this.repository.clearEventsForTab(tabKey);
+    this.clearFingerprints(tabKey);
+    return true;
+  }
+
+  async handleNavigationCommitted(tabId, url, timestamp = Date.now()) {
+    if (
+      !isAuditableUrl(url) ||
+      !(await this.hasAuditCanvasForTab(tabId))
+    ) {
+      return false;
+    }
+    const tabKey = String(tabId);
+    const now = Number(timestamp || Date.now());
+    const lastNavigationClear = this.navigationClearTimestamps[tabKey] || 0;
+    if (
+      lastNavigationClear &&
+      now - lastNavigationClear < NAVIGATION_CLEAR_SUPPRESS_LOADING_MS
+    ) {
+      return false;
+    }
+    const cutoffTimestamp = now - LOADING_EVENT_RACE_GRACE_MS;
+    this.navigationClearTimestamps[tabKey] = now;
+    this.loadingFallbackTimestamps[tabKey] = now;
+    await this.repository.clearEventsForTabBefore(tabKey, cutoffTimestamp);
     this.clearFingerprints(tabKey);
     return true;
   }

@@ -647,6 +647,46 @@ test("builds timeline with missing, duplicate, and out-of-order states", () => {
   assert.equal(purchase.duplicateCount, 2);
 });
 
+test("timeline prefers in-order Floodlight evidence when an early transport exists", () => {
+  const timeline = buildTimeline(
+    [
+      {
+        id: "early-floodlight-network",
+        platform: "Floodlight",
+        pixelId: "9226442",
+        eventName: "oreo_003 / inter000",
+        eventData: { src: "9226442", type: "oreo_003", cat: "inter000" },
+        timestamp: 100,
+      },
+      {
+        id: "ga4-page",
+        platform: "GA4",
+        pixelId: "G-TEST123",
+        eventName: "page_view",
+        eventData: {},
+        timestamp: 200,
+      },
+      {
+        id: "floodlight-datalayer",
+        platform: "Floodlight",
+        pixelId: "9226442",
+        eventName: "oreo_003 / inter000",
+        eventData: { src: "9226442", type: "oreo_003", cat: "inter000" },
+        source: "datalayer",
+        timestamp: 300,
+      },
+    ],
+    [
+      { platform: "GA4", eventName: "page_view" },
+      { platform: "Floodlight", eventName: "Floodlight" },
+    ],
+  );
+
+  const floodlight = timeline.find((step) => step.platform === "Floodlight");
+  assert.equal(floodlight.status, "observed");
+  assert.equal(floodlight.eventId, "floodlight-datalayer");
+});
+
 test("returns concrete quick fix suggestions", () => {
   assert.match(
     getIssueFixSuggestion({

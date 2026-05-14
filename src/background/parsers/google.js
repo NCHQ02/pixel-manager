@@ -152,10 +152,8 @@ export function parseGoogleRequest(url, details) {
   ) {
     const eventData = parseFloodlightPathParams(pathname);
 
-    // Also grab any standard query parameters
-    url.searchParams.forEach((value, key) => {
-      eventData[key] = value;
-    });
+    mergeSearchParams(eventData, url.searchParams);
+    mergeObjectParams(eventData, parseRequestBodyParams(details));
 
     const pixelId = eventData.src || "Unknown";
     const eventName =
@@ -222,6 +220,91 @@ function normalizeAwId(value) {
   if (/^AW-\d+$/.test(raw)) return raw;
   if (/^\d{6,}$/.test(raw)) return `AW-${raw}`;
   return "";
+}
+
+function mergeSearchParams(target, searchParams) {
+  searchParams.forEach((value, key) => {
+    target[key] = value;
+  });
+}
+
+function mergeObjectParams(target, params = {}) {
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      target[key] = value;
+    }
+  });
+}
+
+function parseRequestBodyParams(details = {}) {
+  const requestBody = details.requestBody;
+  if (!requestBody) return {};
+
+  const params = {};
+
+  if (requestBody.formData) {
+    Object.entries(requestBody.formData).forEach(([key, values]) => {
+      const [value] = Array.isArray(values) ? values : [values];
+      params[key] = parseMaybeJson(value);
+    });
+  }
+
+  (requestBody.raw || []).forEach((item) => {
+    if (!item?.bytes) return;
+    try {
+      mergeObjectParams(
+        params,
+        parseRawBodyParams(new TextDecoder("utf-8").decode(item.bytes)),
+      );
+    } catch (_e) {}
+  });
+
+  return params;
+}
+
+function parseRawBodyParams(raw = "") {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return {};
+
+  if (looksLikeJson(trimmed)) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? Object.fromEntries(
+            Object.entries(parsed).map(([key, value]) => [
+              key,
+              parseMaybeJson(value),
+            ]),
+          )
+        : {};
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  if (!trimmed.includes("=")) return {};
+  const params = {};
+  const bodyParams = new URLSearchParams(trimmed);
+  bodyParams.forEach((value, key) => {
+    params[key] = parseMaybeJson(value);
+  });
+  return params;
+}
+
+function looksLikeJson(raw = "") {
+  const trimmed = String(raw).trim();
+  return trimmed.startsWith("{") || trimmed.startsWith("[");
+}
+
+function parseMaybeJson(value) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!looksLikeJson(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch (_e) {
+    return value;
+  }
 }
 
 function parseFloodlightPathParams(pathname) {

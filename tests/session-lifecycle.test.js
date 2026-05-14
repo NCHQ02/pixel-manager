@@ -251,6 +251,61 @@ test("tab loading after navigation start does not clear current navigation hits"
   );
 });
 
+test("navigation committed clears stale tab events when beforeNavigate was missed", async () => {
+  const chromeApi = createMockChrome();
+  const repository = createMemoryEventRepository();
+  const manager = new AuditSessionManager({
+    chromeApi,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await manager.hydrate();
+  const context = await manager.enableAuditingForTab(
+    { id: 7, url: "https://shop.test/", status: "complete" },
+    { createNewRun: true },
+  );
+  await repository.addEvent({
+    ...event,
+    id: "previous-page-event",
+    timestamp: 1000,
+    auditRunId: context.auditRunId,
+  });
+
+  const cleared = await manager.handleNavigationCommitted(
+    7,
+    "https://shop.test/new-page",
+    2500,
+  );
+
+  assert.equal(cleared, true);
+  assert.deepEqual(await repository.getEventsByTab("7"), []);
+});
+
+test("navigation committed clears persisted workspace events after session wake", async () => {
+  const chromeApi = createMockChrome();
+  const repository = createMemoryEventRepository();
+  await repository.addEvent({
+    ...event,
+    id: "stored-event-without-live-session",
+    timestamp: 1000,
+  });
+  const manager = new AuditSessionManager({
+    chromeApi,
+    repository,
+    clearFingerprints: () => {},
+  });
+  await manager.hydrate();
+
+  const cleared = await manager.handleNavigationCommitted(
+    7,
+    "https://shop.test/reloaded",
+    2500,
+  );
+
+  assert.equal(cleared, true);
+  assert.deepEqual(await repository.getEventsByTab("7"), []);
+});
+
 test("tab close removes session context but preserves audit data", async () => {
   const chromeApi = createMockChrome();
   const repository = createMemoryEventRepository();

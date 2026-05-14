@@ -334,6 +334,10 @@ export function auditEvent(event) {
         warnings.push(`Missing 'currency' parameter for ${eventName}.`);
       }
     }
+  } else if (platform === "Floodlight" && eventData._networkUnverified) {
+    warnings.push(
+      "Floodlight DOM intent observed, but no matching network POST/GET hit was captured yet.",
+    );
   }
 
   return warnings;

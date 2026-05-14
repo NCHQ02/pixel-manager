@@ -17,6 +17,7 @@ export function selectEvents(store, dashboardState, options = {}) {
     applyStatus = true,
     applySearch = true,
     applyTag = true,
+    applyTimeline = true,
     includeDiagnostics = false,
   } = options;
   let events =
@@ -62,6 +63,13 @@ export function selectEvents(store, dashboardState, options = {}) {
     );
   }
 
+  const selectedTimelineFilter = normalizeSelectedTimelineFilter(dashboardState);
+  if (applyTimeline && selectedTimelineFilter) {
+    events = events.filter((event) =>
+      timelineFilterMatches(event, selectedTimelineFilter),
+    );
+  }
+
   const selectedTags = normalizeSelectedTags(dashboardState);
   if (applyTag && selectedTags.length > 0) {
     const selectedKeys = new Set(
@@ -73,6 +81,48 @@ export function selectEvents(store, dashboardState, options = {}) {
   }
 
   return events.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function normalizeSelectedTimelineFilter(dashboardState = {}) {
+  const rawFilter =
+    dashboardState.selectedTimelineFilter ||
+    (Array.isArray(dashboardState.selectedTimelineFilters)
+      ? dashboardState.selectedTimelineFilters[0]
+      : null);
+  if (!rawFilter) return null;
+  const filter = {
+    platform: String(rawFilter.platform || "Any").trim() || "Any",
+    eventName: String(rawFilter.eventName || "").trim(),
+  };
+  return filter.eventName ? filter : null;
+}
+
+function timelineFilterMatches(event, filter) {
+  if (filter.platform !== "Any" && event.platform !== filter.platform) {
+    return false;
+  }
+  const eventName = normalizeEventName(event.eventName);
+  const filterName = normalizeEventName(filter.eventName);
+  if (filterName === "pageview") return ["pageview"].includes(eventName);
+  if (filterName === "viewcontent") return ["viewcontent"].includes(eventName);
+  if (filterName === "addtocart") return ["addtocart"].includes(eventName);
+  if (filterName === "lead") {
+    return ["lead", "begincheckout", "checkout"].includes(eventName);
+  }
+  if (filterName === "purchase") {
+    return ["purchase", "completepayment", "conversion", "floodlight"].some(
+      (candidate) => eventName.includes(candidate),
+    );
+  }
+  if (filterName === "conversion") {
+    return eventName.startsWith("conversion");
+  }
+  if (filterName === "floodlight") return event.platform === "Floodlight";
+  return eventName === filterName;
+}
+
+function normalizeEventName(value = "") {
+  return String(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function normalizeSelectedTags(dashboardState = {}) {

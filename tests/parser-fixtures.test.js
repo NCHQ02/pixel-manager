@@ -489,6 +489,174 @@ test("parses Floodlight ddm activity path fixture", () => {
   assert.equal(parsed.eventData.ord, "order-1");
 });
 
+test("parses Floodlight activity POST form payload", () => {
+  const parsed = parseGoogleRequest(
+    new URL("https://ad.doubleclick.net/activity"),
+    {
+      method: "POST",
+      requestBody: {
+        formData: {
+          src: ["9226442"],
+          type: ["oreo_003"],
+          cat: ["inter0"],
+          gcs: ["G111"],
+          dc_random: ["1778747636"],
+        },
+      },
+    },
+  );
+
+  assert.equal(parsed.platform, "Floodlight");
+  assert.equal(parsed.pixelId, "9226442");
+  assert.equal(parsed.eventName, "oreo_003 / inter0");
+  assert.equal(parsed.eventData.gcs, "G111");
+});
+
+test("parses Floodlight activity POST raw urlencoded payload", () => {
+  const parsed = parseGoogleRequest(
+    new URL("https://ad.doubleclick.net/activity"),
+    {
+      method: "POST",
+      requestBody: rawBody(
+        "src=9226442&type=oreo_003&cat=inter0&~oref=https%3A%2F%2Foreosocolapie.com%2F",
+      ),
+    },
+  );
+
+  assert.equal(parsed.platform, "Floodlight");
+  assert.equal(parsed.pixelId, "9226442");
+  assert.equal(parsed.eventName, "oreo_003 / inter0");
+  assert.equal(parsed.eventData["~oref"], "https://oreosocolapie.com/");
+});
+
+test("suppresses repeated Floodlight transports for the same activity", async () => {
+  clearFingerprints("21");
+  const { engine, repository } = createDataLayerHarness();
+  const baseUrl =
+    "https://ad.doubleclick.net/ddm/activity/src=9226442;type=oreo_003;cat=inter000;ord=";
+
+  await engine.handleNetworkRequest({
+    tabId: 21,
+    method: "POST",
+    url: `${baseUrl}1?gtm=abc`,
+    initiator: "https://oreosocolapie.com",
+    documentUrl: "https://oreosocolapie.com/",
+  });
+  await engine.handleNetworkRequest({
+    tabId: 21,
+    method: "GET",
+    url: `${baseUrl}2?gtm=def`,
+    initiator: "https://oreosocolapie.com",
+    documentUrl: "https://oreosocolapie.com/",
+  });
+  await engine.handleNetworkRequest({
+    tabId: 21,
+    method: "GET",
+    url: `${baseUrl}3?gtm=ghi`,
+    initiator: "https://oreosocolapie.com",
+    documentUrl: "https://oreosocolapie.com/",
+  });
+
+  const events = await repository.getEventsByTab("21");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].platform, "Floodlight");
+  assert.equal(events[0].status, "valid");
+  assert.equal(events[0].duplicateCount, 0);
+});
+
+test("shows Floodlight DataLayer send_to as a DOM fallback", async () => {
+  clearFingerprints("22");
+  const { engine, repository } = createDataLayerHarness();
+
+  await engine.handleDataLayerMessage(
+    {
+      type: "DATALAYER_PUSH",
+      data: {
+        timestamp: 1000,
+        payload: [
+          [
+            "event",
+            "conversion",
+            {
+              allow_custom_scripts: true,
+              send_to: "DC-9226442/oreo_003/inter000+standard",
+            },
+          ],
+        ],
+      },
+    },
+    { tab: { id: 22, url: "https://oreosocolapie.com/" } },
+  );
+
+  const events = await repository.getEventsByTab("22");
+  const floodlight = events.find((event) => event.platform === "Floodlight");
+  assert.ok(floodlight);
+  assert.equal(floodlight.pixelId, "9226442");
+  assert.equal(floodlight.eventName, "oreo_003 / inter000");
+  assert.equal(floodlight.method, "DOM");
+  assert.equal(floodlight.status, "warning");
+  assert.equal(floodlight.source, "datalayer");
+  assert.equal(floodlight.eventData._networkUnverified, true);
+  const datalayer = events.find((event) => event.platform === "DataLayer");
+  assert.ok(datalayer);
+  assert.equal(datalayer.eventName, "conversion");
+  assert.deepEqual(datalayer.diagnostics.floodlightIntent, {
+    src: "9226442",
+    type: "oreo_003",
+    cat: "inter000",
+    send_to: "DC-9226442/oreo_003/inter000+standard",
+    counting_method: "standard",
+    deliveryVerified: false,
+  });
+});
+
+test("keeps network Floodlight evidence when DOM fallback appeared first", async () => {
+  clearFingerprints("23");
+  const { engine, repository } = createDataLayerHarness();
+
+  await engine.handleDataLayerMessage(
+    {
+      type: "DATALAYER_PUSH",
+      data: {
+        timestamp: 1000,
+        payload: [
+          [
+            "event",
+            "conversion",
+            {
+              allow_custom_scripts: true,
+              send_to: "DC-9226442/oreo_003/inter0+standard",
+            },
+          ],
+        ],
+      },
+    },
+    { tab: { id: 23, url: "https://oreosocolapie.com/" } },
+  );
+
+  await engine.handleNetworkRequest({
+    tabId: 23,
+    method: "POST",
+    url: "https://ad.doubleclick.net/activity",
+    requestBody: {
+      formData: {
+        src: ["9226442"],
+        type: ["oreo_003"],
+        cat: ["inter0"],
+      },
+    },
+    initiator: "https://oreosocolapie.com",
+    documentUrl: "https://oreosocolapie.com/",
+  });
+
+  const floodlightEvents = (await repository.getEventsByTab("23")).filter(
+    (event) => event.platform === "Floodlight",
+  );
+  assert.equal(floodlightEvents.length, 2);
+  assert.ok(floodlightEvents.some((event) => event.method === "DOM"));
+  assert.ok(floodlightEvents.some((event) => event.method === "POST"));
+});
+
 test("captures numeric-key gtag event arguments as the actual event name", async () => {
   const { engine, repository } = createDataLayerHarness();
 
