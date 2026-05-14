@@ -123,7 +123,14 @@
               </div>
             </section>
 
-            <section id="health-card" class="color-block bg-cream health-card">
+            <section
+              id="health-card"
+              class="color-block bg-cream health-card"
+              role="button"
+              tabindex="0"
+              data-overview-action="health"
+              aria-label="Open tracking health issues"
+            >
               <p class="eyebrow">Tracking Health</p>
               <div id="health-score-value" class="score-number">100%</div>
               <span id="health-score-label" class="status-pill status-valid">
@@ -133,32 +140,62 @@
           </div>
 
           <section class="summary-grid" aria-label="Audit summary">
-            <div class="summary-tile">
+            <button
+              class="summary-tile"
+              type="button"
+              data-overview-action="events"
+              aria-label="Open captured events"
+            >
               <span class="caption">Events</span>
               <strong id="summary-events">0</strong>
-            </div>
-            <div class="summary-tile">
+            </button>
+            <button
+              class="summary-tile"
+              type="button"
+              data-overview-action="checklist"
+              aria-label="Open expected event checklist"
+            >
               <span class="caption">Expected Pass</span>
               <strong id="summary-pass">0 / 0</strong>
-            </div>
-            <div class="summary-tile">
+            </button>
+            <button
+              class="summary-tile"
+              type="button"
+              data-overview-action="issues"
+              aria-label="Open audit issues"
+            >
               <span class="caption">Issues</span>
               <strong id="summary-issues">0</strong>
-            </div>
-            <div class="summary-tile">
+            </button>
+            <button
+              class="summary-tile"
+              type="button"
+              data-overview-action="browser-capi"
+              aria-label="Open Browser CAPI readiness details"
+            >
               <span class="caption">Browser CAPI</span>
               <strong id="summary-capi">N/A</strong>
               <span id="summary-capi-label" class="caption">Not configured</span>
-            </div>
-            <div class="summary-tile">
+            </button>
+            <button
+              class="summary-tile"
+              type="button"
+              data-overview-action="consent-mode"
+              aria-label="Open Consent Mode readiness details"
+            >
               <span class="caption">Consent Mode</span>
               <strong id="summary-consent">N/A</strong>
               <span id="summary-consent-label" class="caption">Not configured</span>
-            </div>
-            <div class="summary-tile">
+            </button>
+            <button
+              class="summary-tile"
+              type="button"
+              data-overview-action="redactions"
+              aria-label="Open privacy redaction issues"
+            >
               <span class="caption">Redactions</span>
               <strong id="summary-redactions">0</strong>
-            </div>
+            </button>
           </section>
 
           <section class="workspace-section">

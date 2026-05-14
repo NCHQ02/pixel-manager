@@ -50,6 +50,7 @@ const state = {
   selectedEventId: null,
   selectedTagFilters: [],
   selectedTimelineFilter: null,
+  issueFocus: null,
   expectedPixels: {},
   expectedEvents: [],
 };
@@ -58,6 +59,46 @@ let hydrated = false;
 let draftTimer = null;
 let activeReportPreviewUrl = null;
 let renderQueued = false;
+
+const ISSUE_FOCUS_DEFINITIONS = {
+  "browser-capi": {
+    label: "Browser CAPI",
+    emptyMessage: "No Browser CAPI issues found for the current audit.",
+    matches: (issue) => {
+      const text = issueText(issue);
+      return (
+        text.includes("browser capi") ||
+        text.includes("dedupe") ||
+        ["deduplication", "duplicate_firing"].includes(issue.category) ||
+        (["Meta", "TikTok"].includes(issue.platform) &&
+          ["installation", "parser_confidence", "required_params"].includes(
+            issue.category,
+          ))
+      );
+    },
+  },
+  "consent-mode": {
+    label: "Consent Mode",
+    emptyMessage: "No Consent Mode issues found for the current audit.",
+    matches: (issue) =>
+      issue.category === "consent" ||
+      issue.eventName === "Consent Mode" ||
+      issueText(issue).includes("consent"),
+  },
+  redactions: {
+    label: "Privacy redactions",
+    emptyMessage: "No privacy redaction issues found for the current audit.",
+    matches: (issue) => {
+      const text = issueText(issue);
+      return (
+        issue.category === "privacy" ||
+        text.includes("redacted") ||
+        text.includes("plaintext") ||
+        text.includes("privacy")
+      );
+    },
+  },
+};
 
 const renderer = new PixelRenderer("events-list", "empty-state", {
   onSelectEvent: openEventDrawer,
@@ -417,6 +458,10 @@ function renderOverview(reportModel) {
   els.healthScoreLabel.textContent = health.label;
   els.healthScoreLabel.className = `status-pill status-${health.tone}`;
   els.healthCard.className = `color-block health-card ${health.tone === "healthy" ? "bg-mint" : health.tone === "review" ? "bg-cream" : "bg-pink"}`;
+  els.healthCard.setAttribute(
+    "aria-label",
+    `Open tracking health issues. Current score ${health.score} percent, ${health.label}.`,
+  );
 
   els.summaryEvents.textContent = String(reportModel.summary.total);
   els.summaryPass.textContent = `${passCount} / ${reportModel.checklist.length}`;
@@ -436,21 +481,25 @@ function renderOverview(reportModel) {
   const steps = [
     {
       label: "Setup Expectations",
+      action: "checklist",
       done: state.expectedEvents.length > 0,
       detail: `${state.expectedEvents.length} expected event(s) selected`,
     },
     {
       label: "Start Audit",
+      action: "start-audit",
       done: !!getActiveAuditRun(),
       detail: getActiveAuditRun() ? "Audit window active" : "No audit window",
     },
     {
       label: "Trigger Funnel",
+      action: "live",
       done: reportModel.summary.total > 0,
       detail: `${reportModel.summary.total} event(s) observed`,
     },
     {
       label: "Fix Issues",
+      action: "issues",
       done: reportModel.summary.total > 0 && reportModel.issues.length === 0,
       detail: reportModel.issues.length
         ? `${reportModel.issues.length} issue(s) need review`
@@ -458,6 +507,7 @@ function renderOverview(reportModel) {
     },
     {
       label: "Export Report",
+      action: "report",
       done: reportModel.summary.total > 0,
       detail: "HTML, JSON, and CSV ready",
     },
@@ -466,11 +516,11 @@ function renderOverview(reportModel) {
   els.qaStepper.innerHTML = steps
     .map(
       (step, index) => `
-        <div class="step-item ${step.done ? "done" : ""}">
+        <button class="step-item ${step.done ? "done" : ""}" type="button" data-step-action="${escapeHtml(step.action)}" aria-label="${escapeHtml(step.label)}: ${escapeHtml(step.detail)}">
           <span class="step-index">${index + 1}</span>
           <strong>${escapeHtml(step.label)}</strong>
           <p class="body-sm">${escapeHtml(step.detail)}</p>
-        </div>
+        </button>
       `,
     )
     .join("");
@@ -686,7 +736,7 @@ function renderChecklist(checklist) {
             ? "Observed in this audit session."
             : "Expected event was not observed.";
       return `
-        <div class="qa-row">
+        <div class="qa-row" data-platform="${escapeHtml(item.platform)}" data-event-name="${escapeHtml(item.eventName)}" tabindex="-1">
           <div class="platform-label">${platformIcon(item.platform)}<span>${escapeHtml(item.platform)}</span></div>
           <strong class="body-sm">${escapeHtml(item.eventName)}</strong>
           <span class="status-pill status-${item.status}">${escapeHtml(item.status.replace("_", " "))}</span>
@@ -699,6 +749,10 @@ function renderChecklist(checklist) {
 
 function renderIssues(reportModel) {
   const issues = reportModel.issues;
+  const issueFocus = getIssueFocusDefinition();
+  const visibleIssues = issueFocus
+    ? issues.filter((issue) => issueFocus.matches(issue))
+    : issues;
   const categoryText =
     Object.entries(reportModel.issueSummary || {})
       .filter(([, item]) => item.total > 0)
@@ -707,29 +761,55 @@ function renderIssues(reportModel) {
   els.issuesSummary.className = `qa-section color-block ${
     issues.length > 0 ? "bg-pink" : "bg-mint"
   }`;
+  const focusedSummary = issueFocus
+    ? `<div class="issue-focus-bar">
+        <span class="body-sm">Showing ${visibleIssues.length} of ${issues.length} issue(s) for ${escapeHtml(issueFocus.label)}.</span>
+        <button class="button-pill button-outline" type="button" data-clear-issue-focus>Show All Issues</button>
+      </div>`
+    : "";
   els.issuesSummary.innerHTML = `
     <p class="eyebrow">Issues</p>
-    <h2 class="headline">${issues.length > 0 ? "Fix these before campaign spend starts." : "No blocking issues found so far."}</h2>
+    <h2 class="headline">${
+      issueFocus
+        ? visibleIssues.length > 0
+          ? `${escapeHtml(issueFocus.label)} needs review.`
+          : escapeHtml(issueFocus.emptyMessage)
+        : issues.length > 0
+          ? "Fix these before campaign spend starts."
+          : "No blocking issues found so far."
+    }</h2>
     <p class="body-lg">${reportModel.summary.total} event(s), ${reportModel.health.score}% Tracking Health, ${reportModel.summary.redactions} privacy redaction(s).</p>
     <p class="body-sm">${escapeHtml(categoryText)}</p>
+    ${focusedSummary}
   `;
 
-  if (issues.length === 0) {
+  if (visibleIssues.length === 0) {
     els.issuesList.innerHTML = `
       <div class="issue-row">
         <span class="status-pill status-valid">valid</span>
-        <strong>Audit clean</strong>
-        <span class="body-sm">No warnings detected for the current audit.</span>
+        <strong>${issueFocus ? escapeHtml(issueFocus.label) : "Audit clean"}</strong>
+        <span class="body-sm">${
+          issueFocus
+            ? escapeHtml(issueFocus.emptyMessage)
+            : "No warnings detected for the current audit."
+        }</span>
         <span class="body-sm">Keep triggering the remaining funnel steps.</span>
       </div>
     `;
     return;
   }
 
-  els.issuesList.innerHTML = issues
+  els.issuesList.innerHTML = visibleIssues
     .map(
       (issue) => `
-        <button class="issue-row" type="button" data-event-id="${escapeHtml(issue.eventId || "")}">
+        <button
+          class="issue-row"
+          type="button"
+          data-event-id="${escapeHtml(issue.eventId || "")}"
+          data-issue-category="${escapeHtml(issue.category || "")}"
+          data-platform="${escapeHtml(issue.platform || "")}"
+          data-event-name="${escapeHtml(issue.eventName || "")}"
+        >
           <div class="issue-meta">
             <span class="status-pill status-${issue.severity === "error" ? "error" : "warning"}">${escapeHtml(issue.severity)}</span>
             <span class="caption">${escapeHtml(formatIssueCategory(issue.category))}</span>
@@ -1108,6 +1188,186 @@ function buildCurrentReportModel({ filtered = false } = {}) {
   });
 }
 
+function issueText(issue = {}) {
+  return [
+    issue.category,
+    issue.platform,
+    issue.eventName,
+    issue.message,
+    issue.evidence,
+    issue.suggestion,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function getIssueFocusDefinition() {
+  return ISSUE_FOCUS_DEFINITIONS[state.issueFocus] || null;
+}
+
+function syncFilterControls() {
+  els.searchInput.value = state.searchQuery;
+  els.platformFilter.value = state.platformFilter;
+  els.statusFilter.value = state.statusFilter;
+  els.tabSelector.value = state.selectedTabId;
+}
+
+function resetEventListFilters() {
+  state.searchQuery = "";
+  state.platformFilter = "All";
+  state.statusFilter = "All";
+  resetLiveIsolationFilters();
+  syncFilterControls();
+}
+
+function cssEscape(value) {
+  const text = String(value || "");
+  if (window.CSS?.escape) return window.CSS.escape(text);
+  return text.replace(/["\\]/g, "\\$&");
+}
+
+function focusElementAfterRender(selector) {
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector(selector);
+    if (!target) return;
+    target.scrollIntoView({ block: "center", inline: "nearest" });
+    if (typeof target.focus === "function") {
+      target.focus({ preventScroll: true });
+    }
+    target.classList.add("focus-flash");
+    window.setTimeout(() => target.classList.remove("focus-flash"), 1200);
+  });
+}
+
+function openLiveEvents({ eventId = null, resetFilters = true } = {}) {
+  if (resetFilters) resetEventListFilters();
+  state.issueFocus = null;
+  if (eventId) state.selectedEventId = eventId;
+  setView("live");
+  if (eventId) {
+    openEventDrawer(eventId);
+    focusElementAfterRender(
+      `#events-list [data-event-id="${cssEscape(eventId)}"]`,
+    );
+    return;
+  }
+  focusElementAfterRender("#events-list, #empty-state");
+}
+
+function openChecklist({ platform = "", eventName = "", setup = false } = {}) {
+  state.issueFocus = null;
+  setView("checklist");
+  if (platform && eventName) {
+    focusElementAfterRender(
+      `#checklist-list [data-platform="${cssEscape(platform)}"][data-event-name="${cssEscape(eventName)}"]`,
+    );
+    return;
+  }
+  focusElementAfterRender(setup ? ".setup-panel" : "#checklist-list");
+}
+
+function openIssues(issueFocus = null) {
+  state.issueFocus = issueFocus;
+  setView("issues");
+  focusElementAfterRender("#issues-list");
+}
+
+function openReportWorkspace() {
+  state.issueFocus = null;
+  setView("report");
+  focusElementAfterRender("#report-view-pane .report-hero");
+}
+
+function handleOverviewAction(action) {
+  const reportModel = buildCurrentReportModel();
+  if (action === "events") {
+    openLiveEvents();
+    return;
+  }
+  if (action === "checklist") {
+    openChecklist();
+    return;
+  }
+  if (action === "issues" || action === "health") {
+    openIssues();
+    return;
+  }
+  if (action === "browser-capi") {
+    if (reportModel.browserCapiReadiness?.score === null) {
+      openChecklist({ setup: true });
+      return;
+    }
+    openIssues("browser-capi");
+    return;
+  }
+  if (action === "consent-mode") {
+    if (reportModel.consentModeReadiness?.score === null) {
+      openChecklist({ setup: true });
+      return;
+    }
+    openIssues("consent-mode");
+    return;
+  }
+  if (action === "redactions") {
+    if (reportModel.summary.redactions > 0) {
+      openIssues("redactions");
+      return;
+    }
+    openLiveEvents();
+  }
+}
+
+function handleQaStepAction(action) {
+  if (action === "checklist") {
+    openChecklist({ setup: true });
+    return;
+  }
+  if (action === "start-audit") {
+    if (getActiveAuditRun()) openLiveEvents();
+    else startAudit(false);
+    return;
+  }
+  if (action === "live") {
+    openLiveEvents();
+    return;
+  }
+  if (action === "issues") {
+    openIssues();
+    return;
+  }
+  if (action === "report") {
+    openReportWorkspace();
+  }
+}
+
+function handleIssueRowAction(row) {
+  const eventId = row.dataset.eventId;
+  if (eventId) {
+    openLiveEvents({ eventId });
+    return;
+  }
+
+  const category = row.dataset.issueCategory;
+  const platform = row.dataset.platform;
+  const eventName = row.dataset.eventName;
+  if (category === "installation" && platform && eventName) {
+    openChecklist({ platform, eventName });
+    return;
+  }
+  if (category === "consent") {
+    openIssues("consent-mode");
+    return;
+  }
+  if (category === "privacy") {
+    openIssues("redactions");
+    return;
+  }
+  if (category === "source_of_truth") {
+    openReportWorkspace();
+  }
+}
+
 function exportReport({ filtered = false } = {}) {
   const auditRun = getActiveAuditRun();
   const reportModel = buildCurrentReportModel({ filtered });
@@ -1265,7 +1525,22 @@ function safeHostname(url) {
 }
 
 els.navButtons.forEach((button) => {
-  button.addEventListener("click", () => setView(button.dataset.view));
+  button.addEventListener("click", () => {
+    if (button.dataset.view === "issues") state.issueFocus = null;
+    setView(button.dataset.view);
+  });
+});
+
+document.getElementById("overview-view-pane").addEventListener("click", (event) => {
+  const actionTarget = event.target.closest("[data-overview-action]");
+  if (!actionTarget) return;
+  handleOverviewAction(actionTarget.dataset.overviewAction);
+});
+
+els.healthCard.addEventListener("keydown", (event) => {
+  if (!["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  handleOverviewAction(els.healthCard.dataset.overviewAction);
 });
 
 els.mobileMenuToggle.addEventListener("click", () => {
@@ -1351,6 +1626,12 @@ function handleTimelineClick(event) {
   if (eventId) openEventDrawer(eventId);
 }
 
+els.qaStepper.addEventListener("click", (event) => {
+  const step = event.target.closest("[data-step-action]");
+  if (!step) return;
+  handleQaStepAction(step.dataset.stepAction);
+});
+
 els.expectationPresets.addEventListener("change", (event) => {
   if (!event.target.classList.contains("expected-event-checkbox")) return;
   const platform = event.target.dataset.platform;
@@ -1405,8 +1686,13 @@ els.saveExpectationsBtn.addEventListener("click", async () => {
 });
 
 els.issuesList.addEventListener("click", (event) => {
-  const row = event.target.closest("[data-event-id]");
-  if (row?.dataset.eventId) openEventDrawer(row.dataset.eventId);
+  const row = event.target.closest(".issue-row");
+  if (row) handleIssueRowAction(row);
+});
+
+els.issuesSummary.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-clear-issue-focus]")) return;
+  openIssues();
 });
 
 els.overviewPreviewReportBtn.addEventListener("click", () => previewReport());
