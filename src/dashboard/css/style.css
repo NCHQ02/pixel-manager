@@ -595,6 +595,7 @@ button.timeline-step {
 
 .status-warning,
 .status-duplicate,
+.status-medium,
 .status-review,
 .status-out_of_order {
   background: #b45309;
@@ -603,9 +604,15 @@ button.timeline-step {
 .status-missing,
 .status-missing_params,
 .status-error,
+.status-high,
 .status-risk,
 .status-blocked {
   background: #c53030;
+}
+
+.status-info,
+.status-low {
+  background: #4a5568;
 }
 
 .status-diagnostic {
@@ -1067,7 +1074,8 @@ button.issue-row {
   z-index: 90;
   display: flex;
   flex-direction: column;
-  width: min(520px, 100vw);
+  width: clamp(640px, 44vw, 860px);
+  max-width: calc(100vw - 24px);
   height: 100vh;
   background: white;
   border-left: 1px solid var(--colors-border);
@@ -1085,6 +1093,7 @@ button.issue-row {
 .drawer-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   display: grid;
   align-content: start;
   gap: var(--spacing-md);
@@ -1092,16 +1101,37 @@ button.issue-row {
 }
 
 .drawer-block {
+  min-width: 0;
   border: 1px solid var(--colors-border);
   border-radius: 16px;
   padding: var(--spacing-md);
   background: white;
 }
 
+.drawer-block p,
+.drawer-block strong,
+.drawer-block span,
+.drawer-block button {
+  max-width: 100%;
+}
+
+.drawer-block p,
+.drawer-block strong,
+.drawer-block .body-sm,
+.drawer-block .caption,
+.drawer-block .evidence-text {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .drawer-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spacing-sm);
+}
+
+.drawer-grid > * {
+  min-width: 0;
 }
 
 .detail-value {
@@ -1412,6 +1442,7 @@ body.compact-events .event-card .mini-badge {
     top: auto;
     bottom: 0;
     width: 100vw;
+    max-width: 100vw;
     height: min(86vh, 760px);
     border-top: 1px solid var(--colors-border);
     border-left: 0;

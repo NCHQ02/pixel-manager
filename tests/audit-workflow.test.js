@@ -536,10 +536,45 @@ test("builds central AuditIssue fields with category and evidence", () => {
 
   assert.equal(ISSUE_CATEGORY_LABELS.deduplication, "Deduplication");
   assert.equal(dedupe.severity, "warning");
+  assert.equal(dedupe.severityLabel, "MEDIUM");
+  assert.equal(dedupe.issueType, "Technical");
   assert.equal(dedupe.eventId, "purchase-1");
   assert.equal(dedupe.source, "network");
+  assert.match(dedupe.impact, /Browser and server events/i);
   assert.match(dedupe.evidence, /eventData\.event_id|eventData\.eid/i);
   assert.match(dedupe.suggestion, /event_id/i);
+});
+
+test("adds enterprise triage metadata to privacy and parser-confidence issues", () => {
+  const issues = buildIssues(
+    [
+      {
+        id: "tt-privacy",
+        platform: "TikTok",
+        pixelId: "D7GRCSJC77UEMEL8C600",
+        eventName: "Shopee_Shop",
+        eventData: { _privacyRedactions: Array.from({ length: 11 }, (_, index) => `p${index}`) },
+        source: "network",
+        sourceParser: "tiktok",
+        confidence: "medium",
+        diagnostics: {
+          validationIssues: ["Pixel or tag ID does not match TikTok format."],
+        },
+        timestamp: 1,
+      },
+    ],
+    [],
+  );
+
+  const privacy = issues.find((issue) => issue.category === "privacy");
+  const parser = issues.find((issue) => issue.category === "parser_confidence");
+
+  assert.equal(privacy.severityLabel, "HIGH");
+  assert.equal(privacy.issueType, "Compliance");
+  assert.match(privacy.impact, /platform data policies/i);
+  assert.equal(parser.severityLabel, "MEDIUM");
+  assert.equal(parser.issueType, "Technical");
+  assert.match(parser.confidenceReason, /does not match the expected TikTok ID format/i);
 });
 
 test("merges DOM scanner evidence into installation, consent, and Google health issues", () => {
@@ -646,6 +681,57 @@ test("builds health score with capped issue deductions", () => {
 
   assert.equal(health.score, 82);
   assert.equal(health.label, "Needs Review");
+});
+
+test("deducts one health point bucket entry per actionable warning issue", () => {
+  const health = buildHealthScore(
+    [
+      {
+        id: "tt-view",
+        platform: "TikTok",
+        pixelId: "C123ABC",
+        eventName: "ViewContent",
+        eventData: {},
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "TikTok", eventName: "ViewContent" }],
+  );
+
+  assert.equal(health.deductions.warnings, 1);
+  assert.equal(health.score, 97);
+});
+
+test("counts duplicate firing in its own health bucket without double warning penalty", () => {
+  const event = {
+    id: "dup-1",
+    platform: "Meta",
+    pixelId: "123",
+    eventName: "Purchase",
+    eventData: {
+      _duplicateWarning: true,
+      eid: "evt-1",
+      cd: { value: "10", currency: "USD" },
+    },
+    duplicateCount: 1,
+    timestamp: 1,
+  };
+  const issues = buildIssues(
+    [event],
+    [{ platform: "Meta", eventName: "Purchase" }],
+  );
+  const health = buildHealthScore(
+    [event],
+    [{ platform: "Meta", eventName: "Purchase" }],
+  );
+
+  assert.equal(
+    issues.filter((issue) => issue.category === "duplicate_firing").length,
+    1,
+  );
+  assert.equal(health.deductions.duplicateFiring, 1);
+  assert.equal(health.deductions.warnings, 0);
+  assert.equal(health.score, 94);
 });
 
 test("builds timeline with missing, duplicate, and out-of-order states", () => {

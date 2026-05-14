@@ -18,6 +18,7 @@ import {
 import {
   EVIDENCE_SOURCES,
   EVIDENCE_SOURCE_META,
+  PLATFORM_DEFINITIONS,
   canonicalEventName as catalogCanonicalEventName,
   canonicalPlatform as catalogCanonicalPlatform,
   getEvidenceSourceForEvent,
@@ -91,7 +92,7 @@ export function createAuditIssue(input = {}) {
   const eventEvidenceSource = event.evidenceSource
     ? getEvidenceSourceForEvent(event)
     : getEvidenceSourceForEvent({ source: input.source || event.source || "network" });
-  return {
+  const baseIssue = {
     severity: input.severity || "warning",
     category,
     platform: input.platform || event.platform || "Any",
@@ -106,6 +107,7 @@ export function createAuditIssue(input = {}) {
     eventId: input.eventId === undefined ? event.id || null : input.eventId,
     heuristic: !!input.heuristic,
   };
+  return enrichIssue(baseIssue, event);
 }
 
 export function normalizeExpectedEvent(event) {
@@ -267,8 +269,15 @@ export function buildIssues(
     const status = classifyEventStatus(event, warnings);
     const rule = findRule(event.platform, event.eventName);
     const ruleIssues = collectRuleIssues(event, rule, expectedPixels);
+    const eventWarnings =
+      event.duplicateCount > 0
+        ? warnings.filter(
+            (message) =>
+              !String(message).toLowerCase().includes("duplicate firing"),
+          )
+        : warnings;
 
-    [...warnings, ...ruleIssues].forEach((message) => {
+    [...eventWarnings, ...ruleIssues].forEach((message) => {
       const isRequiredParamIssue = String(message).startsWith(
         "Missing required parameter:",
       );
@@ -345,16 +354,16 @@ export function buildHealthScore(
 
   const missingExpected = checklist.filter((item) => !item.found).length;
   const missingRequired = issues.filter((issue) =>
-    issue.message.includes("Missing required parameter"),
+    issue.category === "required_params" && issue.severity === "error",
   ).length;
   const duplicateFiring = issues.filter((issue) =>
-    issue.message.includes("Duplicate firing"),
+    issue.category === "duplicate_firing",
   ).length;
   const warnings = issues.filter(
     (issue) =>
       issue.severity === "warning" &&
-      !issue.message.includes("Duplicate firing") &&
-      !issue.message.includes("Missing required parameter"),
+      issue.category !== "duplicate_firing" &&
+      issue.category !== "required_params",
   ).length;
   const redactions = summary.redactions;
 
@@ -628,6 +637,105 @@ function issueCategoryForMessage(message = "") {
   return "event_quality";
 }
 
+function enrichIssue(issue = {}, event = {}) {
+  return {
+    ...issue,
+    severityLabel: issue.severityLabel || severityLabelForIssue(issue),
+    issueType: issue.issueType || issueTypeForCategory(issue.category),
+    impact: issue.impact || issueImpactForIssue(issue),
+    confidenceReason:
+      issue.confidenceReason || confidenceReasonForIssue(issue, event),
+  };
+}
+
+function severityLabelForIssue(issue = {}) {
+  const category = issue.category || "";
+  const message = String(issue.message || "").toLowerCase();
+  if (
+    issue.severity === "error" ||
+    (category === "privacy" &&
+      (message.includes("plaintext") || message.includes("redacted")))
+  ) {
+    return "HIGH";
+  }
+  if (
+    category === "parser_confidence" &&
+    (message.includes("does not match") || message.includes("could not be parsed"))
+  ) {
+    return "MEDIUM";
+  }
+  if (issue.severity === "info" || category === "source_of_truth") {
+    return "LOW";
+  }
+  return "MEDIUM";
+}
+
+function issueTypeForCategory(category = "") {
+  if (["privacy", "consent"].includes(category)) return "Compliance";
+  if (category === "source_of_truth") return "Evidence";
+  return "Technical";
+}
+
+function issueImpactForIssue(issue = {}) {
+  const category = issue.category || "";
+  const message = String(issue.message || "").toLowerCase();
+  if (category === "privacy") {
+    return "May violate platform data policies and reduce account trust or data quality if plaintext user data reaches ad platforms.";
+  }
+  if (category === "consent") {
+    return "Measurement may run before a valid consent state, creating compliance risk and less reliable Google diagnostics.";
+  }
+  if (category === "required_params") {
+    return "The platform may reject, under-attribute, or under-report the event because required conversion fields are missing.";
+  }
+  if (category === "event_quality") {
+    return "Optimization and reporting can lose precision because recommended event parameters are incomplete or malformed.";
+  }
+  if (category === "deduplication") {
+    return "Browser and server events may fail to merge, causing duplicate or missing conversion counts.";
+  }
+  if (category === "duplicate_firing") {
+    return "The same user action may be counted more than once, inflating conversion reporting and optimization signals.";
+  }
+  if (category === "installation") {
+    return "Expected campaign events may not be measured in this audit flow or may be sent to the wrong destination.";
+  }
+  if (category === "google_tag_health") {
+    return "Google measurement can be incomplete or ordered incorrectly, affecting consent, linker, and conversion diagnostics.";
+  }
+  if (category === "parser_confidence") {
+    return "The hit was captured, but ID or event-name interpretation may be unreliable until the raw payload is confirmed.";
+  }
+  if (category === "source_of_truth") {
+    return "Local browser evidence cannot confirm final account-side delivery without platform diagnostics.";
+  }
+  if (message.includes("value") || message.includes("currency")) {
+    return "Revenue reporting and optimization can be incomplete for this conversion.";
+  }
+  return "Review is needed before this signal can be treated as launch-ready.";
+}
+
+function confidenceReasonForIssue(issue = {}, event = {}) {
+  if (issue.category !== "parser_confidence") return "";
+  const parser = event.sourceParser || issue.source || "unknown";
+  const confidence = event.confidence || "medium";
+  const platform = event.platform || issue.platform || "this platform";
+  const pixelId = event.pixelId || issue.pixelId || "Unknown";
+  const expectedPattern = PLATFORM_DEFINITIONS[platform]?.expectedIdPattern;
+  const message = String(issue.message || "").toLowerCase();
+
+  if (message.includes("does not match")) {
+    return `The request matched the ${parser} parser, but parsed ID "${pixelId}" does not match the expected ${platform} ID format${expectedPattern ? ` (${expectedPattern})` : ""}. Confidence stayed ${confidence}.`;
+  }
+  if (pixelId === "Unknown" || message.includes("could not be parsed")) {
+    return `The request matched the ${parser} parser, but no stable ID was found in the known ID parameters. Confidence is ${confidence}.`;
+  }
+  if (message.includes("event name")) {
+    return `The request matched the ${parser} parser, but no known event-name parameter was present. Confidence is ${confidence}.`;
+  }
+  return `Parser ${parser} emitted ${confidence} confidence based on endpoint and payload heuristics.`;
+}
+
 function evidenceForIssue(message, event = {}) {
   const source = event.source || "audit";
   const platform = event.platform || "Any";
@@ -834,7 +942,7 @@ function browserCapiFinding({
   evidence,
   suggestion,
 }) {
-  return {
+  const issue = {
     severity,
     category,
     platform: expected.platform,
@@ -849,6 +957,7 @@ function browserCapiFinding({
     eventId: event?.id || null,
     component,
   };
+  return enrichIssue(issue, event || {});
 }
 
 function dedupeReadinessFindings(findings = []) {
@@ -1116,7 +1225,7 @@ function consentModeFinding({
   evidence,
   suggestion,
 }) {
-  return {
+  const issue = {
     severity,
     category: "consent",
     platform: "Google",
@@ -1131,6 +1240,7 @@ function consentModeFinding({
     eventId: null,
     component,
   };
+  return enrichIssue(issue);
 }
 
 function consentModeVerdict(score, hasFindings = false) {
@@ -2283,10 +2393,10 @@ export function buildProfessionalReportHtml(reportModel) {
         </div>
         <table>
           <thead>
-            <tr><th>Severity</th><th>Category</th><th>Source</th><th>Platform</th><th>Event</th><th>Detected Problem</th><th>Suggested Fix</th></tr>
+            <tr><th>Severity</th><th>Type</th><th>Category</th><th>Source</th><th>Platform</th><th>Event</th><th>Detected Problem</th><th>Impact</th><th>Suggested Fix</th></tr>
           </thead>
           <tbody>
-            ${model.issues.length ? model.issues.map(renderReportIssueRow).join("") : `<tr><td colspan="7">No issues detected in this audit.</td></tr>`}
+            ${model.issues.length ? model.issues.map(renderReportIssueRow).join("") : `<tr><td colspan="9">No issues detected in this audit.</td></tr>`}
           </tbody>
         </table>
       </section>
@@ -2568,18 +2678,20 @@ function renderReportChecklistRow(item) {
 function renderReportIssueRow(issue) {
   const evidenceMeta = getEvidenceSourceMeta(issue.evidenceSource);
   const severityClass =
-    issue.severity === "error"
+    issue.severityLabel === "HIGH" || issue.severity === "error"
       ? "pill-error"
-      : issue.severity === "info"
+      : issue.severityLabel === "LOW" || issue.severity === "info"
         ? "pill-soft"
         : "pill-warning";
   return `<tr>
-    <td><span class="pill ${severityClass}">${escapeHtml(issue.severity)}</span></td>
+    <td><span class="pill ${severityClass}">${escapeHtml(issue.severityLabel || issue.severity)}</span></td>
+    <td>${escapeHtml(issue.issueType || "Technical")}</td>
     <td>${escapeHtml(issueCategoryLabel(issue.category))}</td>
     <td>${escapeHtml(issue.source || "audit")}<span class="evidence">${escapeHtml(evidenceMeta.label)}${issue.heuristic ? " / heuristic" : ""}</span></td>
     <td>${escapeHtml(issue.platform)}</td>
     <td>${escapeHtml(issue.eventName)}</td>
-    <td>${escapeHtml(issue.message)}<span class="evidence">${escapeHtml(issue.evidence || "No evidence snippet available.")}</span></td>
+    <td>${escapeHtml(issue.message)}<span class="evidence">${escapeHtml(issue.evidence || "No evidence snippet available.")}${issue.confidenceReason ? ` ${escapeHtml(issue.confidenceReason)}` : ""}</span></td>
+    <td>${escapeHtml(issue.impact || "Review is needed before launch.")}</td>
     <td>${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</td>
   </tr>`;
 }
@@ -2588,9 +2700,9 @@ function renderReadinessIssueRow(issue) {
   return `<tr>
     <td>${escapeHtml(issueCategoryLabel(issue.category))}</td>
     <td>${escapeHtml(issue.platform)}</td>
-    <td>${escapeHtml(issue.eventName)}</td>
+    <td>${escapeHtml(issue.eventName)}<span class="evidence">${escapeHtml(issue.severityLabel || issue.severity || "MEDIUM")} / ${escapeHtml(issue.issueType || "Technical")}</span></td>
     <td>${escapeHtml(issue.evidence || issue.message)}</td>
-    <td>${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</td>
+    <td>${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}<span class="evidence">${escapeHtml(issue.impact || "")}</span></td>
   </tr>`;
 }
 

@@ -811,7 +811,8 @@ function renderIssues(reportModel) {
           data-event-name="${escapeHtml(issue.eventName || "")}"
         >
           <div class="issue-meta">
-            <span class="status-pill status-${issue.severity === "error" ? "error" : "warning"}">${escapeHtml(issue.severity)}</span>
+            <span class="status-pill status-${issueSeverityClass(issue)}">${escapeHtml(issueSeverityLabel(issue))}</span>
+            <span class="caption">${escapeHtml(issueTypeLabel(issue))}</span>
             <span class="caption">${escapeHtml(formatIssueCategory(issue.category))}</span>
             <span class="caption">${escapeHtml(issue.source || "audit")}${issue.heuristic ? " / heuristic" : ""}</span>
           </div>
@@ -820,10 +821,12 @@ function renderIssues(reportModel) {
             <strong>${escapeHtml(issue.eventName)}</strong>
             <p class="body-sm">${escapeHtml(issue.message)}</p>
             <p class="caption evidence-text">${escapeHtml(issue.evidence || "No evidence snippet available.")}</p>
+            ${issue.confidenceReason ? `<p class="caption evidence-text">Reason: ${escapeHtml(issue.confidenceReason)}</p>` : ""}
           </div>
           <div class="issue-fix">
             <span class="caption">Suggested Fix</span>
             <span class="body-sm">${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</span>
+            <span class="caption evidence-text">Impact: ${escapeHtml(issueImpactText(issue))}</span>
           </div>
         </button>
       `,
@@ -966,9 +969,11 @@ function renderEventDrawer(event) {
           ? issues
               .map(
                 (issue) => `
-                  <p class="caption">${escapeHtml(formatIssueCategory(issue.category))}${issue.heuristic ? " / heuristic" : ""}</p>
+                  <p class="caption">${escapeHtml(issueSeverityLabel(issue))} / ${escapeHtml(issueTypeLabel(issue))} / ${escapeHtml(formatIssueCategory(issue.category))}${issue.heuristic ? " / heuristic" : ""}</p>
                   <p class="body-sm"><strong>${escapeHtml(issue.message)}</strong></p>
                   <p class="caption evidence-text">${escapeHtml(issue.evidence || "No evidence snippet available.")}</p>
+                  <p class="body-sm"><strong>Impact:</strong> ${escapeHtml(issueImpactText(issue))}</p>
+                  ${issue.confidenceReason ? `<p class="caption evidence-text">Confidence reason: ${escapeHtml(issue.confidenceReason)}</p>` : ""}
                   <p class="body-sm">${escapeHtml(issue.suggestion || getIssueFixSuggestion(issue))}</p>
                 `,
               )
@@ -1502,6 +1507,34 @@ function applyAuditPreset(presetId) {
 
 function formatIssueCategory(category) {
   return ISSUE_CATEGORY_LABELS[category] || category || "Event Quality";
+}
+
+function issueSeverityLabel(issue = {}) {
+  return issue.severityLabel || (
+    issue.severity === "error"
+      ? "HIGH"
+      : issue.severity === "info"
+        ? "LOW"
+        : "MEDIUM"
+  );
+}
+
+function issueSeverityClass(issue = {}) {
+  return issueSeverityLabel(issue).toLowerCase();
+}
+
+function issueTypeLabel(issue = {}) {
+  return issue.issueType || (
+    ["privacy", "consent"].includes(issue.category)
+      ? "Compliance"
+      : issue.category === "source_of_truth"
+        ? "Evidence"
+        : "Technical"
+  );
+}
+
+function issueImpactText(issue = {}) {
+  return issue.impact || "Review is needed before this signal can be treated as launch-ready.";
 }
 
 function expectedKey(event) {
