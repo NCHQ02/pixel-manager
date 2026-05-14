@@ -33,6 +33,18 @@ test("parses Meta Purchase fixture", () => {
   assert.equal(parsed.eventData.cd.currency, "USD");
 });
 
+test("parses Meta advanced matching bracket fields", () => {
+  const parsed = parseMetaRequest(
+    new URL(
+      "https://www.facebook.com/tr/?id=123456&ev=Lead&ud%5Bem%5D=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&cd=%7B%22content_name%22%3A%22Guide%22%7D",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.eventData.ud.em, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  assert.equal(parsed.eventData.cd.content_name, "Guide");
+});
+
 test("parses TikTok CompletePayment JSON fixture", () => {
   const parsed = parseTikTokRequest(
     new URL("https://analytics.tiktok.com/api/v2/pixel/track/"),
@@ -53,6 +65,50 @@ test("parses TikTok CompletePayment JSON fixture", () => {
   assert.equal(parsed.pixelId, "C123ABC");
   assert.equal(parsed.eventName, "CompletePayment");
   assert.equal(parsed.eventData.properties.currency, "USD");
+});
+
+test("parses TikTok Purchase URL-encoded fixture with sdkid", () => {
+  const parsed = parseTikTokRequest(
+    new URL("https://analytics.tiktok.com/api/v2/pixel/track/?sdkid=CSDK123"),
+    {
+      method: "POST",
+      requestBody: rawBody(
+        "event=Purchase&event_id=evt-1&properties=%7B%22value%22%3A88%2C%22currency%22%3A%22USD%22%7D",
+      ),
+    },
+  );
+
+  assert.equal(parsed.platform, "TikTok");
+  assert.equal(parsed.pixelId, "CSDK123");
+  assert.equal(parsed.eventName, "Purchase");
+  assert.equal(parsed.eventData.properties.value, 88);
+});
+
+test("splits batched TikTok JSON events", () => {
+  const parsed = parseTikTokRequest(
+    new URL("https://analytics.tiktok.com/api/v2/pixel/track/"),
+    {
+      method: "POST",
+      requestBody: rawBody(
+        JSON.stringify({
+          pixel_code: "CBATCH123",
+          events: [
+            { event: "PageView", context: { page: { url: "https://shop.test/" } } },
+            {
+              event: "Purchase",
+              properties: { value: 10, currency: "USD" },
+              event_id: "evt-purchase",
+            },
+          ],
+        }),
+      ),
+    },
+  );
+
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0].eventName, "Pageview");
+  assert.equal(parsed[1].eventName, "Purchase");
+  assert.equal(parsed[1].pixelId, "CBATCH123");
 });
 
 test("normalizes TikTok Pageview casing", () => {
@@ -96,6 +152,28 @@ test("parses Google Ads conversion fixture", () => {
   assert.equal(parsed.eventData.currency_code, "USD");
 });
 
+test("parses Google Ads 1p conversion numeric path as AW tag", () => {
+  const parsed = parseGoogleRequest(
+    new URL(
+      "https://www.googleadservices.com/pagead/1p-conversion/987654321/?label=purchase_1&value=15&currency_code=USD",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.platform, "Google Ads");
+  assert.equal(parsed.pixelId, "AW-987654321");
+  assert.equal(parsed.eventName, "Conversion (purchase_1)");
+});
+
+test("ignores Google Ads static loader scripts", () => {
+  const parsed = parseGoogleRequest(
+    new URL("https://www.googleadservices.com/pagead/conversion_async.js"),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed, null);
+});
+
 test("parses Floodlight activity fixture", () => {
   const parsed = parseGoogleRequest(
     new URL(
@@ -108,6 +186,20 @@ test("parses Floodlight activity fixture", () => {
   assert.equal(parsed.pixelId, "321");
   assert.equal(parsed.eventName, "sales / thankyou");
   assert.equal(parsed.eventData.u1, "customer-tier");
+});
+
+test("parses Floodlight ddm activity path fixture", () => {
+  const parsed = parseGoogleRequest(
+    new URL(
+      "https://ad.doubleclick.net/ddm/activity/src=321;type=sales;cat=thankyou;ord=order-1?u2=vip",
+    ),
+    { method: "GET" },
+  );
+
+  assert.equal(parsed.platform, "Floodlight");
+  assert.equal(parsed.pixelId, "321");
+  assert.equal(parsed.eventName, "sales / thankyou");
+  assert.equal(parsed.eventData.ord, "order-1");
 });
 
 test("redacts plaintext sensitive values before storage", () => {

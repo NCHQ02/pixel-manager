@@ -43,7 +43,9 @@ const BASE_AUDIT_RULES = [
     platform: "TikTok",
     eventName: "ViewContent",
     requiredParams: ["pixelId"],
-    recommendedParams: ["eventData.properties.content_id"],
+    recommendedParams: [
+      "eventData.properties.content_ids|eventData.properties.content_id",
+    ],
   },
   {
     platform: "TikTok",
@@ -56,7 +58,7 @@ const BASE_AUDIT_RULES = [
   },
   {
     platform: "TikTok",
-    eventName: "CompletePayment",
+    eventName: "Purchase",
     requiredParams: [
       "pixelId",
       "eventData.properties.value",
@@ -88,7 +90,7 @@ const BASE_AUDIT_RULES = [
     requiredParams: ["pixelId", "eventData.cid"],
     recommendedParams: [
       "eventData.ep.transaction_id",
-      "eventData.ep.currency",
+      "eventData.ep.currency|eventData.cu",
       "eventData.epn.value",
     ],
   },
@@ -97,10 +99,9 @@ const BASE_AUDIT_RULES = [
     eventName: "Conversion",
     requiredParams: ["pixelId"],
     recommendedParams: [
-      "eventData.label",
-      "eventData.lbl",
-      "eventData.value",
-      "eventData.currency_code",
+      "eventData.label|eventData.lbl",
+      "eventData.value|eventData.val",
+      "eventData.currency_code|eventData.currency|eventData.cu",
     ],
     matchMode: "prefix",
   },
@@ -192,7 +193,7 @@ export const EXPECTATION_IMPORT_TEMPLATE = Object.freeze({
     { platform: "TikTok", eventName: "Pageview" },
     { platform: "TikTok", eventName: "ViewContent" },
     { platform: "TikTok", eventName: "AddToCart" },
-    { platform: "TikTok", eventName: "CompletePayment" },
+    { platform: "TikTok", eventName: "Purchase" },
     { platform: "GA4", eventName: "page_view" },
     { platform: "GA4", eventName: "add_to_cart" },
     { platform: "GA4", eventName: "purchase" },

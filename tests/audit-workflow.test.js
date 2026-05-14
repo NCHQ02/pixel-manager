@@ -105,6 +105,18 @@ test("parses bulk expectation JSON import", () => {
   assert.equal(parsed.skippedEvents, 1);
 });
 
+test("normalizes legacy TikTok CompletePayment expectation to Purchase", () => {
+  const parsed = parseExpectationImportJson(
+    JSON.stringify({
+      expectedEvents: [{ platform: "TikTok", eventName: "CompletePayment" }],
+    }),
+  );
+
+  assert.deepEqual(parsed.expectedEvents, [
+    { platform: "TikTok", eventName: "Purchase" },
+  ]);
+});
+
 test("classifies observed events with missing required params", () => {
   const checklist = buildChecklist(
     [
@@ -125,6 +137,44 @@ test("classifies observed events with missing required params", () => {
       issue.includes("Missing required parameter"),
     ),
   );
+});
+
+test("matches legacy TikTok CompletePayment to the current Purchase checklist", () => {
+  const checklist = buildChecklist(
+    [
+      {
+        platform: "TikTok",
+        pixelId: "C123",
+        eventName: "CompletePayment",
+        eventData: { properties: { value: 25, currency: "USD" } },
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "TikTok", eventName: "Purchase" }],
+  );
+
+  assert.equal(checklist[0].found, true);
+  assert.equal(checklist[0].status, "warning");
+  assert.ok(
+    checklist[0].issues.some((issue) => issue.includes("eventData.event_id")),
+  );
+});
+
+test("does not warn for alternate Google Ads label parameter names", () => {
+  const checklist = buildChecklist(
+    [
+      {
+        platform: "Google Ads",
+        pixelId: "AW-123",
+        eventName: "Conversion (lead_a)",
+        eventData: { label: "lead_a", value: "1", currency_code: "USD" },
+        timestamp: 1,
+      },
+    ],
+    [{ platform: "Google Ads", eventName: "Conversion" }],
+  );
+
+  assert.equal(checklist[0].status, "valid");
 });
 
 test("groups duplicate and expected-event issues", () => {

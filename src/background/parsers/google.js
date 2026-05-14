@@ -16,6 +16,8 @@
 export function parseGoogleRequest(url, details) {
   const { hostname, pathname } = url;
 
+  if (isStaticAsset(pathname)) return null;
+
   // 1. GA4
   if (hostname.includes("google-analytics.com") && pathname.includes("/g/collect")) {
     const baseData = {};
@@ -112,24 +114,15 @@ export function parseGoogleRequest(url, details) {
       eventData[key] = value;
     });
 
-    const conversionLabel =
-      eventData.lbl || eventData.label || eventData.label_id || eventData.cv;
-    let pixelId = "Unknown";
-    const match = pathname.match(/(AW-\d+)/);
-    if (match) {
-      pixelId = match[1];
-    } else {
-      pixelId =
-        eventData.sst_id ||
-        eventData.awid ||
-        eventData.gclsrc ||
-        conversionLabel ||
-        "Unknown";
-    }
+    const conversionLabel = extractGoogleAdsLabel(eventData);
+    const pixelId = extractGoogleAdsId(pathname, eventData);
+    const isRemarketing = pathname.includes("/ads/ga-audiences");
 
-    const eventName = conversionLabel
+    const eventName = isRemarketing
+      ? "Remarketing"
+      : conversionLabel
       ? `Conversion (${conversionLabel})`
-      : "Remarketing";
+      : "Conversion";
 
     return {
       platform: "Google Ads",
@@ -145,16 +138,7 @@ export function parseGoogleRequest(url, details) {
     hostname.includes("doubleclick.net") &&
     (pathname.includes("/activity") || pathname.includes("/ddm/activity"))
   ) {
-    const eventData = {};
-
-    // Floodlight uses path parameters: /activity;src=123;type=abc;cat=def
-    const pathParts = pathname.split(";");
-    pathParts.forEach((part) => {
-      const kv = part.split("=");
-      if (kv.length === 2) {
-        eventData[kv[0]] = kv[1];
-      }
-    });
+    const eventData = parseFloodlightPathParams(pathname);
 
     // Also grab any standard query parameters
     url.searchParams.forEach((value, key) => {
@@ -175,5 +159,58 @@ export function parseGoogleRequest(url, details) {
   }
 
   return null;
+}
+
+function isStaticAsset(pathname = "") {
+  return /\.(js|css|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot)$/i.test(pathname);
+}
+
+function extractGoogleAdsLabel(eventData) {
+  const sendTo = String(eventData.send_to || eventData.sendTo || "");
+  const sendToMatch = sendTo.match(/AW-\d+\/([^/?&#]+)/);
+  return eventData.lbl || eventData.label || eventData.label_id || sendToMatch?.[1] || "";
+}
+
+function extractGoogleAdsId(pathname, eventData) {
+  const decodedPath = decodeURIComponent(pathname);
+  const sendTo = String(eventData.send_to || eventData.sendTo || "");
+  const explicitAw =
+    decodedPath.match(/AW-\d+/)?.[0] ||
+    sendTo.match(/AW-\d+/)?.[0] ||
+    normalizeAwId(eventData.awid || eventData.google_conversion_id);
+  if (explicitAw) return explicitAw;
+
+  const numericPathMatch = decodedPath.match(
+    /\/(?:pagead\/(?:1p-)?conversion|conversion)\/(\d{6,})(?:[/?]|$)/,
+  );
+  if (numericPathMatch) return `AW-${numericPathMatch[1]}`;
+
+  return eventData.sst_id || "Unknown";
+}
+
+function normalizeAwId(value) {
+  if (!value) return "";
+  const raw = String(value);
+  if (/^AW-\d+$/.test(raw)) return raw;
+  if (/^\d{6,}$/.test(raw)) return `AW-${raw}`;
+  return "";
+}
+
+function parseFloodlightPathParams(pathname) {
+  const eventData = {};
+  const decodedPath = decodeURIComponent(pathname);
+  const activityMatch = decodedPath.match(/\/(?:ddm\/)?activity\/?(.+)$/);
+  const rawParams = activityMatch?.[1] || "";
+  const cleanParams = rawParams.startsWith(";") ? rawParams.slice(1) : rawParams;
+
+  cleanParams.split(";").forEach((part) => {
+    if (!part || !part.includes("=")) return;
+    const [rawKey, ...valueParts] = part.split("=");
+    const key = rawKey.split("/").pop();
+    if (!key) return;
+    eventData[key] = valueParts.join("=");
+  });
+
+  return eventData;
 }
 

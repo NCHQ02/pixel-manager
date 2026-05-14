@@ -399,10 +399,10 @@ export function auditEvent(event) {
       });
     }
   } else if (platform === "TikTok") {
-    // Schema validation for CompletePayment
-    if (eventName === "CompletePayment") {
+    // Schema validation for purchase-style events, including legacy aliases.
+    if (["Purchase", "CompletePayment", "PlaceAnOrder"].includes(eventName)) {
       if (!eventData.properties || eventData.properties.value === undefined) {
-        warnings.push("Missing 'value' parameter for CompletePayment.");
+        warnings.push(`Missing 'value' parameter for ${eventName}.`);
       } else if (isNaN(parseFloat(eventData.properties.value))) {
         warnings.push("'value' parameter must be a valid number.");
       }
@@ -414,7 +414,7 @@ export function auditEvent(event) {
           );
         }
       } else {
-        warnings.push("Missing 'currency' parameter for CompletePayment.");
+        warnings.push(`Missing 'currency' parameter for ${eventName}.`);
       }
     }
   }

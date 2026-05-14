@@ -98,15 +98,22 @@ export class CaptureEngine {
       if (Array.isArray(item) && item.length > 0) {
         const command = item[0];
         if (typeof command === "string") {
-          eventName = `DataLayer: ${command}`;
+          eventName =
+            command === "event" && typeof item[1] === "string"
+              ? item[1]
+              : `DataLayer: ${command}`;
           if (["consent", "set", "js", "config"].includes(command)) {
             isDiag = true;
           }
         }
       } else if (typeof item === "object" && item.event) {
         eventName = item.event;
-        if (eventName === "gtm.js") eventName = "Page View (GTM Load)";
+        if (eventName === "gtm.js") {
+          eventName = "GTM Container Load";
+          isDiag = true;
+        }
         isDiag =
+          isDiag ||
           eventName === "gtm.load" ||
           eventName === "gtm.dom" ||
           eventName.startsWith("connection__") ||

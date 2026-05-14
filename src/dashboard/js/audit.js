@@ -959,8 +959,12 @@ function canonicalPlatform(platform = "") {
 }
 
 function canonicalEventName(platform, eventName = "") {
-  if (platform === "TikTok" && normalizeEventName(eventName) === "pageview") {
-    return "Pageview";
+  if (platform === "TikTok") {
+    const normalized = normalizeEventName(eventName);
+    if (normalized === "pageview") return "Pageview";
+    if (["completepayment", "placeanorder"].includes(normalized)) {
+      return "Purchase";
+    }
   }
   return eventName;
 }
