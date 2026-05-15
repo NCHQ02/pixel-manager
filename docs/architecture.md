@@ -42,7 +42,7 @@ OmniSignal is a Manifest V3 extension with three runtime areas:
   `source: "scanner"` and are included in audit/report models even when normal
   diagnostic events are hidden from the live stream.
 - `src/shared/tracking-catalog.js` is the source of truth for platform metadata,
-  endpoint coverage, expectation aliases, audit rules, parser schema, and
+  endpoint coverage, expectation aliases, audit rules, parser schema, and-
   Hybrid Evidence labels.
 - Parser output includes `parserSchemaVersion`, `sourceParser`, `confidence`,
   `diagnostics`, and `evidenceSource` so fixtures and reports can identify
