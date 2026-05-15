@@ -16,6 +16,7 @@ const outputDir = path.join(outputRoot, `omnisignal-pixel-tracker-v${version}`);
 const entries = [
   "manifest.json",
   "logo.png",
+  "assets",
   "src",
   "docs/privacy-policy.md",
   "docs/internal-beta-runbook.md",

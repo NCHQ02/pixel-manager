@@ -1,5 +1,9 @@
 # Chrome Web Store Launch Assets
 
+Source of truth for image sizing: Chrome's Chrome Web Store image guidance.
+Public V1 ships with a 128x128 extension icon, a required 440x280 small
+promotional image, an optional 1400x560 marquee image, and 1280x800 screenshots.
+
 ## Listing Name
 
 OmniSignal Pixel Tracker
@@ -37,19 +41,36 @@ endpoints.
 
 ## Screenshot Checklist
 
-- Empty dashboard with activation guidance.
-- Live stream showing Meta, TikTok, GA4, and Google Ads events.
-- Expanded event details with raw payload and copy controls.
-- Warning example for missing purchase `value` or `currency`.
-- Export controls and settings modal.
+- `docs/cws-assets/screenshots/01-overview.png`: Overview with an active audit,
+  tracking health, guided QA, and summary tiles.
+- `docs/cws-assets/screenshots/02-live-stream.png`: Live Stream showing captured
+  DataLayer/network tracking evidence.
+- `docs/cws-assets/screenshots/03-report-workspace.png`: Report workspace with
+  preview/export controls.
+
+## Promotional Images
+
+- `docs/cws-assets/promotional/small-promo-440x280.png`
+- `docs/cws-assets/promotional/marquee-promo-1400x560.png`
+
+## Extension Icons
+
+- `assets/app-icon-16.png`
+- `assets/app-icon-48.png`
+- `assets/app-icon-128.png`
+
+Regenerate all image assets with `npm run assets:cws`.
 
 ## Pre-Submission Checklist
 
-- Confirm `docs/privacy-policy.md` uses the final public publisher contact
-  details before public submission.
+- Confirm the public Chrome Web Store publisher account has the final support
+  contact configured.
 - Confirm dashboard fonts and platform icons are packaged in local assets and
   the extension source contains no remote font, icon, script, or style URLs.
 - Run `npm.cmd test`.
+- Run `npm.cmd run test:e2e`.
+- Run `npm.cmd run assets:cws`.
+- Run `npm.cmd run package:cws`.
 - Run `npm.cmd run verify`.
+- Run `npm.cmd run perf:dashboard`.
 - Load unpacked extension in Chrome and test one live site.
-- Capture fresh screenshots after the final UI pass.

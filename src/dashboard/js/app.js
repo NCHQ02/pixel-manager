@@ -1914,3 +1914,18 @@ store.subscribe((eventsMap) => {
   updateTabSelector(eventsMap);
   scheduleRenderAll();
 });
+
+globalThis.__OMNI_SIGNAL_DEBUG__ = {
+  store,
+  refreshAndRender: async () => {
+    await store.refreshEvents();
+    await store.refreshAuditState();
+    if (!hydrated) hydrateWorkspaceState();
+    updateTabSelector(store.events);
+    renderAll();
+    return {
+      eventCount: store.getAllEvents().length,
+      hydrated,
+    };
+  },
+};

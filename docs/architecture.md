@@ -71,3 +71,5 @@ OmniSignal is a Manifest V3 extension with three runtime areas:
 - Dashboard state selection belongs in `src/dashboard/js/state/`; rendering
   should not mutate IndexedDB directly.
 - Shared contracts and storage adapters belong in `src/shared/`.
+- IndexedDB schema changes must follow `docs/indexeddb-migrations.md` and ship
+  with an upgrade/readability test before public release.

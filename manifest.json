@@ -4,9 +4,9 @@
   "version": "2.1.0",
   "description": "Universal event interception and analysis for Meta, TikTok, and Google Suite.",
   "icons": {
-    "16": "logo.png",
-    "48": "logo.png",
-    "128": "logo.png"
+    "16": "assets/app-icon-16.png",
+    "48": "assets/app-icon-48.png",
+    "128": "assets/app-icon-128.png"
   },
   "permissions": [
     "activeTab",
@@ -31,6 +31,6 @@
     "type": "module"
   },
   "action": {
-    "default_icon": "logo.png"
+    "default_icon": "assets/app-icon-128.png"
   }
 }

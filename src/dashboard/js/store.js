@@ -6,6 +6,24 @@ import {
   normalizeSettings,
 } from "../../shared/settings.js";
 
+function storageGet(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (res) => resolve(res || {}));
+  });
+}
+
+function storageSet(value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(value, () => resolve());
+  });
+}
+
+function storageRemove(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(keys, () => resolve());
+  });
+}
+
 /**
  * Dashboard state facade. Settings and drafts stay in chrome.storage.local;
  * audit events and runs live in IndexedDB through the shared repository.
@@ -27,7 +45,7 @@ export class PixelStore {
     await this.repository.init();
     await this.repository.migrateLegacyStorage(chrome.storage.local);
 
-    const result = await chrome.storage.local.get([
+    const result = await storageGet([
       "settings",
       "auditWorkspaceDraft",
     ]);
@@ -80,10 +98,11 @@ export class PixelStore {
     } catch (_e) {}
   }
 
-  async startAudit({ reload = false } = {}) {
+  async startAudit({ reload = false, tabId = null } = {}) {
     const result = await chrome.runtime.sendMessage({
       type: MESSAGE_TYPES.START_AUDIT,
       reload,
+      targetTabId: tabId,
     });
     await this.refreshEvents();
     await this.refreshAuditState();
@@ -93,13 +112,13 @@ export class PixelStore {
 
   async saveSettings(newSettings) {
     this.settings = mergeSettings(this.settings, newSettings);
-    await chrome.storage.local.set({ settings: this.settings });
+    await storageSet({ settings: this.settings });
     await this.trimEventsToMax(this.settings.maxEvents);
   }
 
   async replaceSettings(newSettings) {
     this.settings = normalizeSettings(newSettings);
-    await chrome.storage.local.set({ settings: this.settings });
+    await storageSet({ settings: this.settings });
     await this.trimEventsToMax(this.settings.maxEvents);
   }
 
@@ -138,14 +157,14 @@ export class PixelStore {
           ? [...(partialDraft.expectedEvents || [])]
           : [...(this.workspaceDraft.expectedEvents || [])],
     };
-    await chrome.storage.local.set({
+    await storageSet({
       auditWorkspaceDraft: this.workspaceDraft,
     });
   }
 
   async clearWorkspaceDraft() {
     this.workspaceDraft = {};
-    await chrome.storage.local.set({ auditWorkspaceDraft: {} });
+    await storageSet({ auditWorkspaceDraft: {} });
     this.notify();
   }
 
@@ -168,7 +187,7 @@ export class PixelStore {
 
   async clearAll() {
     await this.repository.clearAll();
-    await chrome.storage.local.remove(["trackedEvents", "auditRuns"]);
+    await storageRemove(["trackedEvents", "auditRuns"]);
     try {
       await chrome.runtime.sendMessage({
         type: MESSAGE_TYPES.CLEAR_AUDIT_STATE,

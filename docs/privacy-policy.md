@@ -43,8 +43,8 @@ requests, show results in the dashboard, and keep audit history local.
 Users can clear captured audit data from the dashboard at any time. Users can
 also export local audit data as HTML, JSON, or CSV for their own analysis.
 
-## Private Beta Support
+## Support
 
-Private beta users receive support through the contact channel included in their
-beta invitation. A public Chrome Web Store submission should use the same public
-developer account and support contact in the store listing and this policy.
+Users can request support through the support contact published on the Chrome
+Web Store listing. Support requests should not include raw payload exports unless
+the user intentionally chooses to share them.

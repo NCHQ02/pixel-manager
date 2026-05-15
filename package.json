@@ -4,8 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test ./tests/catalog-consistency.test.js ./tests/parser-fixtures.test.js ./tests/audit-workflow.test.js ./tests/repository.test.js ./tests/session-lifecycle.test.js",
+    "test": "node --test ./tests/catalog-consistency.test.js ./tests/parser-fixtures.test.js ./tests/audit-workflow.test.js ./tests/repository.test.js ./tests/indexeddb-upgrade.test.js ./tests/session-lifecycle.test.js",
+    "test:e2e": "node ./tests/e2e-extension-smoke.test.js",
     "verify": "node ./tools/verify-release.js",
+    "assets:cws": "node ./tools/capture-cws-assets.js",
+    "perf:dashboard": "node ./tools/profile-dashboard-performance.js",
+    "package:cws": "node ./tools/package-cws.js",
+    "release:candidate": "npm run test && npm run test:e2e && npm run package:cws && npm run verify",
     "package:internal": "node ./tools/package-internal-beta.js"
   }
 }

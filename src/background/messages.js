@@ -17,6 +17,18 @@ export function openDashboard(chromeApi) {
   });
 }
 
+function getTabById(chromeApi, tabId) {
+  return new Promise((resolve) => {
+    chromeApi.tabs.get(Number(tabId), (tab) => {
+      if (chromeApi.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(tab || null);
+    });
+  });
+}
+
 export function registerRuntimeMessages({
   chromeApi,
   sessionManager,
@@ -47,7 +59,16 @@ export function registerRuntimeMessages({
     if (message.type === MESSAGE_TYPES.START_AUDIT) {
       (async () => {
         await ready;
-        const tab = sender.tab || (await sessionManager.getTargetTab());
+        const requestedTabId = message.targetTabId ?? message.tabId;
+        const senderTab = /^https?:\/\//i.test(sender.tab?.url || "")
+          ? sender.tab
+          : null;
+        const tab =
+          senderTab ||
+          (requestedTabId !== undefined && requestedTabId !== null
+            ? await getTabById(chromeApi, requestedTabId)
+            : null) ||
+          (await sessionManager.getTargetTab());
         if (!tab) {
           sendResponse({
             ok: false,
