@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OmniSignal Pixel Console",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "Universal event interception and analysis for Meta, TikTok, and Google Suite.",
   "icons": {
     "16": "logo.png",
